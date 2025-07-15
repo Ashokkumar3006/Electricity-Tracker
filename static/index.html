@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart-Plug Energy Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.1em;
+        }
+
+        .connection-status {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 10px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .upload-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .upload-area {
+            border: 2px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: linear-gradient(45deg, #f8f9ff 0%, #e8f0ff 100%);
+        }
+
+        .upload-area:hover {
+            border-color: #5a67d8;
+            background: linear-gradient(45deg, #f0f4ff 0%, #e0ecff 100%);
+        }
+
+        .upload-area.dragover {
+            border-color: #4c51bf;
+            background: linear-gradient(45deg, #e8f0ff 0%, #d8e8ff 100%);
+        }
+
+        .upload-btn {
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 1.5em;
+        }
+
+        .card-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .metric-label {
+            color: #718096;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .bill-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .bill-calculator {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .bill-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+
+        .bill-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .bill-btn {
+            background: linear-gradient(45deg, #38b2ac 0%, #319795 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .bill-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(56, 178, 172, 0.4);
+        }
+
+        .bill-breakdown {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .breakdown-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .breakdown-row:last-child {
+            border-bottom: none;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .suggestions-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .suggestion-item {
+            background: linear-gradient(45deg, #fed7d7 0%, #feb2b2 100%);
+            border-left: 4px solid #f56565;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .suggestion-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 15px rgba(245, 101, 101, 0.2);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status-error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #feb2b2;
+        }
+
+        .gradient-text {
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .bill-total {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .bill-total .amount {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .bill-breakdown-table {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        .breakdown-header {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+
+        .bill-breakdown-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .bill-breakdown-table th,
+        .bill-breakdown-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .bill-breakdown-table th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        .bill-error {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #feb2b2;
+        }
+
+        .connection-error {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .btn-small {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-left: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .bill-calculator {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Smart-Plug Energy Tracker</h1>
+            <p>Monitor your energy consumption with Tamil Nadu TNEB LT-1A tariff calculations</p>
+            <div class="connection-status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="connectionStatus">Connecting to backend...</span>
+            </div>
+        </div>
+
+        <div class="upload-section">
+            <h2 class="gradient-text" style="margin-bottom: 20px;">📤 Upload Energy Data</h2>
+            <div class="upload-area" id="uploadArea">
+                <p style="font-size: 1.2em; margin-bottom: 15px;">📁 Drop your JSON file here or click to select</p>
+                <input type="file" id="fileInput" accept=".json" style="display: none;">
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                    Choose File
+                </button>
+            </div>
+            <div id="uploadStatus"></div>
+        </div>
+
+        <div class="dashboard" id="dashboard" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background: linear-gradient(45deg, #667eea 0%, #764ba2 100%); color: white;">
+                        📊
+                    </div>
+                    <div class="card-title">Peak Usage Period</div>
+                </div>
+                <div class="metric-value gradient-text" id="peakPeriod">-</div>
+                <div class="metric-label">Primary consumption time</div>
+                <div class="chart-container">
+                    <canvas id="peakChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background: linear-gradient(45deg, #38b2ac 0%, #319795 100%); color: white;">
+                        🔮
+                    </div>
+                    <div class="card-title">30-Day Prediction</div>
+                </div>
+                <div class="metric-value" style="color: #38b2ac;" id="predictedKwh">-</div>
+                <div class="metric-label">Predicted kWh consumption</div>
+                <div style="margin-top: 15px;">
+                    <div style="font-size: 1.5em; font-weight: 600; color: #2d3748;">
+                        ₹<span id="predictedBill">-</span>
+                    </div>
+                    <div class="metric-label">Estimated bill amount</div>
+                </div>
+            </div>
+
+<!-- Remove this entire card or add proper chart implementation -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon" style="background: linear-gradient(45deg, #ed8936 0%, #dd6b20 100%); color: white;">
+                    ⚡
+                </div>
+                <div class="card-title">Energy Distribution</div>
+            </div>
+            <div class="chart-container">
+                <canvas id="energyChart"></canvas>
+            </div>
+        </div>
+        </div>
+
+        
+
+        <div class="suggestions-section" id="suggestionsSection" style="display: none;">
+            <h2 class="gradient-text" style="margin-bottom: 20px;">💡 Energy Saving Suggestions</h2>
+            <div id="suggestions"></div>
+        </div>
+    <div class="bill-section" id="billSection" style="display: none;">
+        <h2 class="gradient-text" style="margin-bottom: 20px;">💰 Bill Calculator</h2>
+        <div class="bill-calculator">
+            <input type="number" id="unitsInput" class="bill-input" placeholder="Enter units consumed" min="0" step="0.1">
+            <button class="bill-btn" onclick="calculateBill()">Calculate Bill</button>
+        </div>
+        <div id="billResult" style="display: none;"></div>
+        <div id="billBreakdown" style="display: none;"></div>
+    </div>
+    </div>
+
+<script>
+// Configuration
+const CONFIG = {
+    API_BASE: 'http://localhost:5000/api',
+    RETRY_ATTEMPTS: 3,
+    RETRY_DELAY: 1000,
+    CONNECTION_TIMEOUT: 5000
+};
+
+// Global variables
+let isConnected = false;
+let chartInstances = {};
+let currentData = null;
+
+// Initialize app
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Energy Dashboard initializing...');
+    initializeApp();
+    setupEventListeners();
+});
+
+async function initializeApp() {
+    await checkBackendConnection();
+    if (isConnected) {
+        console.log('✅ Backend connected, initializing components...');
+        initializeComponents();
+    } else {
+        console.log('❌ Backend not connected, showing error state...');
+        showConnectionError();
+    }
+}
+
+function initializeComponents() {
+    // Initialize upload area
+    const uploadArea = document.getElementById('uploadArea');
+    if (uploadArea) {
+        uploadArea.innerHTML = `
+            <div class="upload-content">
+                <h3>📁 Upload Energy Data</h3>
+                <p>Drag and drop your JSON file here or click to select</p>
+                <input type="file" id="fileInput" accept=".json" style="display: none;">
+                <button onclick="document.getElementById('fileInput').click()" class="btn">Select File</button>
+                <div id="uploadStatus"></div>
+            </div>
+        `;
+    }
+
+    // Initialize bill calculator
+    const billSection = document.getElementById('billSection');
+    if (billSection && !billSection.querySelector('#unitsInput')) {
+        const billHTML = `
+            <h2 class="gradient-text" style="margin-bottom: 20px;">💰 Bill Calculator</h2>
+            <div class="bill-calculator">
+                <input type="number" id="unitsInput" class="bill-input" placeholder="Enter units consumed" min="0" step="0.1">
+                <button class="bill-btn" onclick="calculateBill()">Calculate Bill</button>
+            </div>
+            <div id="billResult" style="display: none;"></div>
+            <div id="billBreakdown" style="display: none;"></div>
+        `;
+        billSection.innerHTML = billHTML;
+    }
+
+    // Initialize dashboard
+    const dashboard = document.getElementById('dashboard');
+    if (dashboard) {
+        dashboard.innerHTML = `
+            <div class="card">
+                <h2>📊 Energy Distribution</h2>
+                <p>Peak Period: <span id="peakPeriod">No data loaded</span></p>
+                <div class="chart-container">
+                    <canvas id="peakChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🔮 30-Day Prediction</h2>
+                <p>Predicted Consumption: <span id="predictedKwh">No data loaded</span></p>
+                <p>Estimated Bill: ₹<span id="predictedBill">No data loaded</span></p>
+            </div>
+        `;
+    }
+
+    // Initialize suggestions
+    const suggestionsSection = document.getElementById('suggestionsSection');
+    if (suggestionsSection) {
+        suggestionsSection.innerHTML = `
+            <h2>💡 Energy Saving Suggestions</h2>
+            <ul id="suggestionsList">
+                <li>Upload data to get personalized suggestions</li>
+            </ul>
+        `;
+    }
+}
+
+function showConnectionError() {
+    const statusIndicator = document.getElementById('statusIndicator');
+    if (statusIndicator) {
+        statusIndicator.innerHTML = `
+            <div class="connection-error">
+                <h3>❌ Backend Connection Failed</h3>
+                <p>Please ensure the Flask server is running on localhost:5000</p>
+                <button onclick="checkBackendConnection()" class="btn">Retry Connection</button>
+            </div>
+        `;
+    }
+}
+
+async function checkBackendConnection() {
+    const statusIndicator = document.getElementById('statusIndicator');
+    const connectionStatus = document.getElementById('connectionStatus');
+    
+    if (statusIndicator) {
+        statusIndicator.innerHTML = '<div class="connection-status">🔄 Checking backend connection...</div>';
+    }
+    
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONNECTION_TIMEOUT);
+        
+        const response = await fetch(`${CONFIG.API_BASE}/health`, {
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+            const data = await response.json();
+            isConnected = true;
+            
+            if (statusIndicator) {
+                statusIndicator.innerHTML = `
+                    <div class="connection-status connected">
+                        ✅ Backend connected | Data loaded: ${data.data_loaded ? 'Yes' : 'No'}
+                    </div>
+                `;
+            }
+            
+            console.log('✅ Backend connection successful');
+            
+            // Initialize components if not already done
+            if (!document.getElementById('fileInput')) {
+                initializeComponents();
+            }
+            
+        } else {
+            throw new Error('Backend returned error status');
+        }
+    } catch (error) {
+        isConnected = false;
+        
+        if (statusIndicator) {
+            statusIndicator.innerHTML = `
+                <div class="connection-status disconnected">
+                    ❌ Backend disconnected | Error: ${error.message}
+                    <button onclick="checkBackendConnection()" class="btn-small">Retry</button>
+                </div>
+            `;
+        }
+        
+        console.error('❌ Backend connection failed:', error.message);
+        showConnectionError();
+    }
+}
+
+function setupEventListeners() {
+    // File upload handling with drag and drop
+    document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const uploadArea = document.getElementById('uploadArea');
+        if (uploadArea) uploadArea.classList.add('dragover');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        const uploadArea = document.getElementById('uploadArea');
+        if (uploadArea) uploadArea.classList.remove('dragover');
+    });
+
+    document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const uploadArea = document.getElementById('uploadArea');
+        if (uploadArea) uploadArea.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
+
+    // Bill calculator enter key
+    document.addEventListener('keypress', (e) => {
+        if (e.target.id === 'unitsInput' && e.key === 'Enter') {
+            calculateBill();
+        }
+    });
+
+    // File input change
+    document.addEventListener('change', (e) => {
+        if (e.target.id === 'fileInput' && e.target.files.length > 0) {
+            handleFile(e.target.files[0]);
+        }
+    });
+}
+
+async function handleFile(file) {
+    if (!isConnected) {
+        showStatus('❌ Backend not connected. Please refresh the page.', 'error');
+        return;
+    }
+
+    if (!file.name.endsWith('.json')) {
+        showStatus('❌ Please select a JSON file', 'error');
+        return;
+    }
+
+    try {
+        showStatus('📤 Reading file...', 'loading');
+        const text = await file.text();
+        const data = JSON.parse(text);
+        
+        if (!Array.isArray(data)) {
+            throw new Error('JSON file must contain an array of objects');
+        }
+        
+        await uploadData(data);
+    } catch (error) {
+        showStatus('❌ Error reading file: ' + error.message, 'error');
+    }
+}
+
+async function uploadData(data) {
+    showStatus('📤 Uploading data to backend...', 'loading');
+    
+    try {
+        const response = await fetchWithRetry(`${CONFIG.API_BASE}/upload`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        
+        if (response.ok && result.status === 'success') {
+            showStatus(`✅ Successfully loaded ${result.rows_loaded} rows`, 'success');
+            currentData = data;
+            showDashboard();
+            await loadDashboard();
+        } else {
+            showStatus('❌ Error: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        showStatus('❌ Connection error: ' + error.message, 'error');
+    }
+}
+
+async function fetchWithRetry(url, options = {}, attempts = CONFIG.RETRY_ATTEMPTS) {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || i === attempts - 1) {
+                return response;
+            }
+            await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+        } catch (error) {
+            if (i === attempts - 1) throw error;
+            await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+        }
+    }
+}
+
+function showDashboard() {
+    const dashboard = document.getElementById('dashboard');
+    const billSection = document.getElementById('billSection');
+    const suggestionsSection = document.getElementById('suggestionsSection');
+    
+    if (dashboard) dashboard.style.display = 'grid';
+    if (billSection) billSection.style.display = 'block';
+    if (suggestionsSection) suggestionsSection.style.display = 'block';
+}
+
+function showStatus(message, type) {
+    const uploadStatus = document.getElementById('uploadStatus');
+    if (!uploadStatus) return;
+    
+    const statusClass = type === 'success' ? 'status-success' : 
+                      type === 'error' ? 'status-error' : 
+                      type === 'loading' ? 'status-loading' : '';
+    
+    uploadStatus.innerHTML = `<div class="status-message ${statusClass}">${message}</div>`;
+    uploadStatus.style.display = 'block';
+    
+    // Auto-hide success messages after 5 seconds
+    if (type === 'success') {
+        setTimeout(() => {
+            uploadStatus.style.display = 'none';
+        }, 5000);
+    }
+}
+
+async function loadDashboard() {
+    console.log('📊 Loading dashboard data...');
+    
+    const promises = [
+        loadPeakPeriod(),
+        loadPrediction(), 
+        loadSuggestions()
+    ];
+
+    try {
+        await Promise.all(promises);
+        console.log('✅ Dashboard loaded successfully');
+    } catch (error) {
+        console.error('❌ Error loading dashboard:', error);
+    }
+}
+
+async function loadPeakPeriod() {
+    try {
+        const response = await fetchWithRetry(`${CONFIG.API_BASE}/peak`);
+        const data = await response.json();
+        
+        if (data.error) {
+            console.error('Peak period error:', data.error);
+            return;
+        }
+        
+        const peakPeriodElement = document.getElementById('peakPeriod');
+        if (data.peak_period && peakPeriodElement) {
+            peakPeriodElement.textContent = data.peak_period.charAt(0).toUpperCase() + data.peak_period.slice(1);
+        }
+        
+        if (data.period_kwh) {
+            createPeakChart(data.period_kwh);
+        }
+    } catch (error) {
+        console.error('Error loading peak period:', error);
+    }
+}
+
+async function loadPrediction() {
+    try {
+        const response = await fetchWithRetry(`${CONFIG.API_BASE}/predict`);
+        const data = await response.json();
+        
+        if (data.error) {
+            console.error('Prediction error:', data.error);
+            return;
+        }
+        
+        const predictedKwhElement = document.getElementById('predictedKwh');
+        const predictedBillElement = document.getElementById('predictedBill');
+        
+        if (data.predicted_kwh && predictedKwhElement) {
+            predictedKwhElement.textContent = data.predicted_kwh + ' kWh';
+        }
+        
+        if (data.bill && data.bill.total_amount && predictedBillElement) {
+            predictedBillElement.textContent = data.bill.total_amount;
+        }
+    } catch (error) {
+        console.error('Error loading prediction:', error);
+    }
+}
+
+async function loadSuggestions() {
+    try {
+        const response = await fetchWithRetry(`${CONFIG.API_BASE}/suggestions`);
+        const data = await response.json();
+        
+        if (data.suggestions && data.suggestions.length > 0) {
+            const suggestionsList = document.getElementById('suggestionsList');
+            if (suggestionsList) {
+                suggestionsList.innerHTML = '';
+                
+                data.suggestions.forEach(suggestion => {
+                    const li = document.createElement('li');
+                    li.textContent = suggestion;
+                    li.className = 'suggestion-item';
+                    suggestionsList.appendChild(li);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error loading suggestions:', error);
+    }
+}
+
+function createPeakChart(periodData) {
+    const ctx = document.getElementById('peakChart');
+    if (!ctx) {
+        console.error('❌ Peak chart canvas not found');
+        return;
+    }
+
+    // Destroy existing chart if it exists
+    if (chartInstances.peak) {
+        chartInstances.peak.destroy();
+    }
+
+    const periods = ['morning', 'afternoon', 'evening', 'night'];
+    const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'];
+    
+    const chartData = periods.map(period => periodData[period] || 0);
+    const backgroundColors = periods.map((_, index) => colors[index]);
+
+    // Check if we have valid data
+    const totalConsumption = chartData.reduce((a, b) => a + b, 0);
+    if (totalConsumption === 0) {
+        console.warn('⚠️ No consumption data available for chart');
+        ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+        return;
+    }
+
+    try {
+        chartInstances.peak = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: periods.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
+                datasets: [{
+                    data: chartData,
+                    backgroundColor: backgroundColors,
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                    hoverBorderWidth: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const value = context.parsed;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return `${context.label}: ${value} kWh (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        console.log('✅ Peak chart created successfully');
+    } catch (error) {
+        console.error('❌ Error creating peak chart:', error);
+    }
+}
+
+async function calculateBill() {
+    const unitsInput = document.getElementById('unitsInput');
+    if (!unitsInput) {
+        console.error('❌ Units input not found');
+        return;
+    }
+    
+    const units = parseFloat(unitsInput.value);
+    
+    if (isNaN(units) || units <= 0) {
+        showBillError('Please enter a valid number of units (greater than 0)');
+        return;
+    }
+
+    if (units > 10000) {
+        showBillError('Units seem too high. Please check your input.');
+        return;
+    }
+
+    try {
+        const response = await fetchWithRetry(`${CONFIG.API_BASE}/bill?units=${units}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            showBillError(data.error);
+            return;
+        }
+
+        displayBillCalculation(data);
+    } catch (error) {
+        showBillError('Error calculating bill: ' + error.message);
+    }
+}
+
+function displayBillCalculation(billData) {
+    const billResult = document.getElementById('billResult');
+    const billBreakdown = document.getElementById('billBreakdown');
+    
+    if (!billResult || !billBreakdown) {
+        console.error('❌ Bill result elements not found');
+        showBillError('UI components missing. Please refresh the page.');
+        return;
+    }
+    
+    // Hide any previous errors
+    const billError = document.getElementById('billError');
+    if (billError) {
+        billError.style.display = 'none';
+    }
+    
+    // Show total amount
+    billResult.innerHTML = `
+        <div class="bill-total">
+            <h3>💰 Total Bill Amount</h3>
+            <div class="amount">₹${billData.total_amount}</div>
+            <div class="units">for ${billData.units} units</div>
+        </div>
+    `;
+
+    // Show breakdown
+    let breakdownHTML = '<div class="bill-breakdown-table">';
+    breakdownHTML += '<div class="breakdown-header">📋 Slab-wise Breakdown</div>';
+    breakdownHTML += '<table>';
+    breakdownHTML += '<thead><tr><th>Units Range</th><th>Units Used</th><th>Rate (₹/unit)</th><th>Amount (₹)</th></tr></thead>';
+    breakdownHTML += '<tbody>';
+
+    billData.breakup.forEach(slab => {
+        const unitsRange = slab.to === "Above" ? `${slab.from}+` : `${slab.from}-${slab.to}`;
+        breakdownHTML += `
+            <tr>
+                <td>${unitsRange}</td>
+                <td>${slab.units}</td>
+                <td>₹${slab.rate.toFixed(2)}</td>
+                <td>₹${slab.amount}</td>
+            </tr>
+        `;
+    });
+
+    breakdownHTML += '</tbody></table></div>';
+    billBreakdown.innerHTML = breakdownHTML;
+
+    // Show the results with animation
+    billResult.style.display = 'block';
+    billBreakdown.style.display = 'block';
+    
+    // Scroll to results
+    billResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+    console.log('✅ Bill calculation displayed successfully');
+}
+
+function showBillError(message) {
+    let billError = document.getElementById('billError');
+    if (!billError) {
+        billError = document.createElement('div');
+        billError.id = 'billError';
+        billError.className = 'bill-error';
+        
+        const billSection = document.getElementById('billSection');
+        if (billSection) {
+            billSection.appendChild(billError);
+        }
+    }
+    
+    billError.innerHTML = `<div class="error-message">❌ ${message}</div>`;
+    billError.style.display = 'block';
+    
+    // Hide results
+    const billResult = document.getElementById('billResult');
+    const billBreakdown = document.getElementById('billBreakdown');
+    if (billResult) billResult.style.display = 'none';
+    if (billBreakdown) billBreakdown.style.display = 'none';
+    
+    console.log('❌ Bill calculation error:', message);
+}
+
+// Utility functions
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
+}
+
+function formatTime(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 2
+    }).format(amount);
+}
+
+// Export functions for global access
+window.calculateBill = calculateBill;
+window.checkBackendConnection = checkBackendConnection;
+window.loadDashboard = loadDashboard;
+
+// Periodic connection check
+setInterval(checkBackendConnection, 60000); // Check every minute
+
+// Auto-refresh dashboard every 5 minutes if data is loaded
+setInterval(() => {
+    if (isConnected && currentData) {
+        loadDashboard();
+    }
+}, 300000);
+
+// Add keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault();
+        if (isConnected && currentData) {
+            loadDashboard();
+        }
+    }
+    
+    if (e.ctrlKey && e.key === 'u') {
+        e.preventDefault();
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) fileInput.click();
+    }
+});
+
+// Clean up charts on page unload
+window.addEventListener('beforeunload', function() {
+    Object.values(chartInstances).forEach(chart => {
+        if (chart && typeof chart.destroy === 'function') {
+            chart.destroy();
+        }
+    });
+});
+
+// Error handling for uncaught errors
+window.addEventListener('error', function(e) {
+    console.error('💥 Uncaught error:', e.error);
+    if (e.message.includes('Chart')) {
+        showStatus('Chart rendering error. Please refresh the page.', 'error');
+    }
+});
+
+console.log('🎯 Energy Dashboard JavaScript loaded successfully');
+</script>
