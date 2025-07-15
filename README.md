@@ -8,7 +8,6 @@
   
 [![Status](https://img.shields.io/badge/status-active-brightgreen)]() 
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)]() 
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)]()  
 [![Made with Flask](https://img.shields.io/badge/made%20with-Flask-red)]()  
 [![Frontend](https://img.shields.io/badge/frontend-HTML%2FCSS%2FJS-yellowgreen)]()
 
