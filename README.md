@@ -59,7 +59,7 @@ pip install -r requirements.txt
 ```
 ## Run the script
 ```
-python app.py
+python backend_app.py
 ```
 This will create a virtual environment, activate it, install the required packages, and run the script.
 
