@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { BarChart3, TrendingUp, Upload, Calculator, HelpCircle, FileText, Cpu } from "lucide-react"
+import { BarChart3, TrendingUp, Upload, Calculator, Cpu } from "lucide-react" // Removed FileText
 
 interface SidebarProps {
   activeTab: string
@@ -16,12 +16,10 @@ const menuItems = [
   { id: "analytics", label: "Analytics", icon: TrendingUp },
   { id: "upload", label: "Data Upload", icon: Upload },
   { id: "calculator", label: "Bill Calculator", icon: Calculator },
+  // Removed 'reports' and 'help' from here as they were in secondaryItems
 ]
 
-const secondaryItems = [
-  { id: "reports", label: "Reports", icon: FileText },
-  { id: "help", label: "Help & Support", icon: HelpCircle },
-]
+// Removed secondaryItems array entirely
 
 export default function Sidebar({ activeTab, onTabChange, collapsed }: SidebarProps) {
   return (
@@ -50,31 +48,11 @@ export default function Sidebar({ activeTab, onTabChange, collapsed }: SidebarPr
             </Button>
           ))}
 
-          <div className={`pt-6 ${collapsed ? "hidden" : "block"}`}>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Additional</h2>
-          </div>
-
-          {secondaryItems.map((item) => (
-            <Button
-              key={item.id}
-              variant="ghost"
-              className={`w-full justify-start ${collapsed ? "px-2" : "px-3"}`}
-              onClick={() => onTabChange(item.id)}
-            >
-              <item.icon className={`h-5 w-5 ${collapsed ? "" : "mr-3"}`} />
-              {!collapsed && <span>{item.label}</span>}
-            </Button>
-          ))}
+          {/* Removed the "Additional" section entirely */}
+          {/* Removed secondaryItems mapping */}
         </nav>
 
-        {!collapsed && (
-          <div className="p-4 border-t border-gray-200">
-            <div className="text-xs text-gray-500">
-              <p className="font-medium">Smart Energy Monitor v2.1</p>
-              <p>© 2024 Smart Energy Solutions</p>
-            </div>
-          </div>
-        )}
+        {/* Removed the entire copyright footer section */}
       </div>
     </motion.aside>
   )

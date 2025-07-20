@@ -4,8 +4,7 @@ import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { MessageCircle, X, Send, Bot, User } from "lucide-react"
+import { MessageCircle, X, Send, Bot, User, Loader2, AlertCircle, Zap } from "lucide-react"
 
 interface Message {
   id: string
@@ -22,18 +21,48 @@ export default function AIAssistant() {
       id: "1",
       type: "ai",
       content:
-        "Hello! I'm your Smart Energy AI Assistant. I can help you optimize your energy consumption, analyze device performance, and provide personalized recommendations. How can I assist you today?",
+        "Hello! I'm your Smart Energy AI Assistant. I can analyze your energy consumption patterns and provide personalized optimization strategies.\n\n🔧 **Debug Mode**: If you're having issues, try the 'Test API' button below first.\n\nAsk me questions like:\n• How can I save energy?\n• Why is my electricity bill high?\n• Which devices consume the most power?\n\nHow can I help you today?",
       timestamp: new Date(),
-      suggestions: [
-        "Analyze my AC usage",
-        "How to reduce electricity bill?",
-        "Best time to run washing machine",
-        "Energy saving tips",
-      ],
     },
   ])
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
+  const [useEnhancedMode, setUseEnhancedMode] = useState(false)
+
+  const testAPI = async () => {
+    setIsTyping(true)
+    try {
+      const response = await fetch("/api/debug-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Test API connection" }),
+      })
+
+      const data = await response.json()
+
+      const testMessage: Message = {
+        id: Date.now().toString(),
+        type: "ai",
+        content: response.ok
+          ? `✅ **API Test Successful!**\n\nResponse: ${data.response}\n\nAPI Key: ${data.hasApiKey ? "✅ Present" : "❌ Missing"}\n\nYou can now use the full AI assistant!`
+          : `❌ **API Test Failed**\n\nError: ${data.error}\n\nDetails: ${data.details}\n\nAPI Key Present: ${data.hasApiKey ? "Yes" : "No"}`,
+        timestamp: new Date(),
+      }
+
+      setMessages((prev) => [...prev, testMessage])
+    } catch (error) {
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: "ai",
+        content: `❌ **Connection Error**\n\nCould not reach the API endpoint.\n\nError: ${error instanceof Error ? error.message : "Unknown error"}\n\nMake sure your Next.js server is running.`,
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsTyping(false)
+    }
+  }
 
   const sendMessage = async () => {
     if (!input.trim()) return
@@ -49,66 +78,244 @@ export default function AIAssistant() {
     setInput("")
     setIsTyping(true)
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse = generateAIResponse(input)
-      setMessages((prev) => [...prev, aiResponse])
-      setIsTyping(false)
-    }, 1500)
-  }
-
-  const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion)
-  }
-
-  const generateAIResponse = (userInput: string): Message => {
-    const lowerInput = userInput.toLowerCase()
-
-    let response = ""
-    let suggestions: string[] = []
-
-    if (lowerInput.includes("ac") || lowerInput.includes("air conditioner")) {
-      response =
-        "Based on your AC usage patterns, I recommend setting the temperature to 24°C for optimal efficiency. Your AC consumes the most energy during afternoon hours. Consider using a timer and ensuring proper insulation."
-      suggestions = ["Show AC efficiency tips", "Compare AC costs", "Set AC schedule"]
-    } else if (lowerInput.includes("bill") || lowerInput.includes("cost") || lowerInput.includes("reduce")) {
-      response =
-        "To reduce your electricity bill, focus on these high-impact areas: 1) Optimize AC usage (40% of consumption), 2) Use energy-efficient lighting, 3) Run appliances during off-peak hours, 4) Regular maintenance of devices."
-      suggestions = ["Calculate potential savings", "Peak hour analysis", "Device efficiency report"]
-    } else if (lowerInput.includes("washing machine") || lowerInput.includes("laundry")) {
-      response =
-        "Your washing machine is most efficient when run with full loads during off-peak hours (10 PM - 6 AM). Use cold water settings when possible - this can reduce energy consumption by up to 90%."
-      suggestions = ["Optimal washing schedule", "Energy-efficient settings", "Load optimization tips"]
-    } else if (lowerInput.includes("fridge") || lowerInput.includes("refrigerator")) {
-      response =
-        "Your refrigerator shows good efficiency at 87%. Keep temperature at 3-4°C, avoid overloading, and ensure door seals are tight. The current energy consumption is within optimal range."
-      suggestions = ["Fridge maintenance tips", "Temperature optimization", "Energy usage analysis"]
-    } else if (lowerInput.includes("fan")) {
-      response =
-        "Your fans are operating efficiently. Clean the blades regularly and use appropriate speed settings. Ceiling fans can help reduce AC load by 2-3°C, saving significant energy."
-      suggestions = ["Fan maintenance guide", "AC + Fan combination tips", "Speed optimization"]
-    } else if (lowerInput.includes("light") || lowerInput.includes("lighting")) {
-      response =
-        "Consider switching to LED bulbs if you haven't already. Use natural light during daytime and install motion sensors for automatic control. Smart lighting can reduce consumption by 20-30%."
-      suggestions = ["LED upgrade calculator", "Smart lighting options", "Natural light optimization"]
-    } else if (lowerInput.includes("peak") || lowerInput.includes("time")) {
-      response =
-        "Your peak usage is during evening hours (6-10 PM). Consider shifting heavy appliance usage to off-peak hours (10 PM - 6 AM) to reduce costs and grid load."
-      suggestions = ["Peak hour schedule", "Off-peak appliance timing", "Load shifting guide"]
-    } else {
-      response =
-        "I can help you with device-specific optimization, energy saving tips, bill reduction strategies, and usage pattern analysis. What specific aspect of your energy consumption would you like to explore?"
-      suggestions = ["Device analysis", "Bill optimization", "Usage patterns", "Energy tips"]
-    }
-
-    return {
-      id: Date.now().toString(),
+    const aiPlaceholderMessage: Message = {
+      id: (Date.now() + 1).toString(),
       type: "ai",
-      content: response,
+      content: "",
       timestamp: new Date(),
-      suggestions,
+    }
+
+    try {
+      setMessages((prev) => [...prev, aiPlaceholderMessage])
+
+      if (debugMode) {
+        // Use simple debug API
+        const response = await fetch("/api/debug-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: input }),
+        })
+
+        const data = await response.json()
+
+        if (response.ok) {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === aiPlaceholderMessage.id ? { ...msg, content: data.response } : msg)),
+          )
+        } else {
+          throw new Error(data.error || "Debug API failed")
+        }
+      } else if (useEnhancedMode) {
+        // Use enhanced API (two-step process)
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === aiPlaceholderMessage.id ? { ...msg, content: "🔍 Step 1: Gathering your energy data..." } : msg,
+          ),
+        )
+
+        const response = await fetch("/api/chat-enhanced", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [...messages, userMessage].map((msg) => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content,
+            })),
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `HTTP ${response.status}`)
+        }
+
+        const data = await response.json()
+
+        if (data.message) {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === aiPlaceholderMessage.id ? { ...msg, content: data.message } : msg)),
+          )
+        } else {
+          throw new Error("Enhanced API returned no message")
+        }
+      } else {
+        // Use streaming API (original)
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [...messages, userMessage].map((msg) => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content,
+            })),
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `HTTP ${response.status}`)
+        }
+
+        if (!response.body) {
+          throw new Error("No response body received")
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let aiResponseContent = ""
+        let hasReceivedContent = false
+        let toolCallsDetected = false
+        let streamFinished = false
+
+        console.log("Starting to read streaming response...")
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
+            streamFinished = true
+            break
+          }
+
+          const chunk = decoder.decode(value, { stream: true })
+          console.log("Received chunk:", chunk)
+
+          const lines = chunk.split("\n")
+
+          for (const line of lines) {
+            if (line.startsWith("0:")) {
+              try {
+                const jsonStr = line.substring(2)
+                const parsed = JSON.parse(jsonStr)
+                console.log("Parsed JSON:", parsed)
+
+                // Handle different types of streaming data
+                if (parsed.type === "text-delta" && parsed.textDelta) {
+                  aiResponseContent += parsed.textDelta
+                  hasReceivedContent = true
+                  console.log("Added text delta:", parsed.textDelta)
+                } else if (parsed.type === "text" && parsed.text) {
+                  aiResponseContent = parsed.text
+                  hasReceivedContent = true
+                  console.log("Set full text:", parsed.text)
+                } else if (parsed.type === "tool-call") {
+                  toolCallsDetected = true
+                  console.log("Tool call detected:", parsed)
+                  // Update UI to show tool is being called
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === aiPlaceholderMessage.id
+                        ? { ...msg, content: "🔍 Analyzing your energy data..." }
+                        : msg,
+                    ),
+                  )
+                } else if (parsed.type === "tool-result") {
+                  console.log("Tool result:", parsed)
+                  // Update UI to show tool result received
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === aiPlaceholderMessage.id
+                        ? { ...msg, content: "📊 Data retrieved, generating recommendations..." }
+                        : msg,
+                    ),
+                  )
+                } else if (parsed.type === "finish") {
+                  console.log("Stream finished:", parsed)
+                  streamFinished = true
+                }
+              } catch (e) {
+                console.log("Failed to parse JSON:", line, e)
+                continue
+              }
+            }
+          }
+
+          // Update the AI message with accumulated content
+          if (aiResponseContent) {
+            setMessages((prev) =>
+              prev.map((msg) => (msg.id === aiPlaceholderMessage.id ? { ...msg, content: aiResponseContent } : msg)),
+            )
+          }
+        }
+
+        console.log("Final response content:", aiResponseContent)
+        console.log("Has received content:", hasReceivedContent)
+        console.log("Tool calls detected:", toolCallsDetected)
+        console.log("Stream finished:", streamFinished)
+
+        // Check if we received any actual content
+        if (!hasReceivedContent || !aiResponseContent.trim()) {
+          if (toolCallsDetected && streamFinished) {
+            // Automatically retry with enhanced mode
+            console.log("Streaming failed, retrying with enhanced mode...")
+            setUseEnhancedMode(true)
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === aiPlaceholderMessage.id
+                  ? { ...msg, content: "🔄 Streaming failed, switching to enhanced mode..." }
+                  : msg,
+              ),
+            )
+
+            // Retry with enhanced mode
+            const enhancedResponse = await fetch("/api/chat-enhanced", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messages: [...messages, userMessage].map((msg) => ({
+                  role: msg.type === "user" ? "user" : "assistant",
+                  content: msg.content,
+                })),
+              }),
+            })
+
+            if (enhancedResponse.ok) {
+              const enhancedData = await enhancedResponse.json()
+              if (enhancedData.message) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === aiPlaceholderMessage.id ? { ...msg, content: enhancedData.message } : msg,
+                  ),
+                )
+                return // Success!
+              }
+            }
+
+            throw new Error(
+              "Both streaming and enhanced modes failed. The AI gathered your data but couldn't generate the analysis. Please try again.",
+            )
+          } else if (toolCallsDetected) {
+            throw new Error("AI is still processing your data. Please wait a moment and try again.")
+          } else {
+            throw new Error("AI response was empty. Please try again.")
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error sending message to AI:", error)
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiPlaceholderMessage.id
+            ? {
+                ...msg,
+                content: `❌ **Error**: ${errorMessage}\n\n💡 **Try Enhanced Mode**: Click the "Enhanced" button below for a more reliable experience.\n\n**Other Options**:\n• Toggle debug mode for simpler responses\n• Try: "What's my current energy usage?"\n• Check browser console for detailed logs`,
+              }
+            : msg,
+        ),
+      )
+    } finally {
+      setIsTyping(false)
     }
   }
+
+  const quickActions = [
+    "How can I save energy?",
+    "Test API connection",
+    "What's my peak usage time?",
+    "Show device performance",
+  ]
 
   return (
     <>
@@ -119,14 +326,6 @@ export default function AIAssistant() {
           rounded-full shadow-lg hover:shadow-xl transition-all duration-300 text-white"
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
-        animate={{
-          boxShadow: [
-            "0 4px 20px rgba(59, 130, 246, 0.3)",
-            "0 8px 30px rgba(59, 130, 246, 0.4)",
-            "0 4px 20px rgba(59, 130, 246, 0.3)",
-          ],
-        }}
-        transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
       >
         <MessageCircle className="w-6 h-6" />
       </motion.button>
@@ -149,7 +348,9 @@ export default function AIAssistant() {
                 </div>
                 <div>
                   <div className="font-semibold">Smart Energy AI</div>
-                  <div className="text-xs opacity-90">Energy Optimization Assistant</div>
+                  <div className="text-xs opacity-90">
+                    {debugMode ? "Debug Mode" : useEnhancedMode ? "Enhanced Mode" : "Streaming Mode"}
+                  </div>
                 </div>
               </div>
               <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
@@ -174,25 +375,8 @@ export default function AIAssistant() {
                           : "bg-white text-gray-800 border border-gray-200 rounded-bl-sm"
                       }`}
                     >
-                      <div className="text-sm">{message.content}</div>
+                      <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                     </div>
-
-                    {/* Suggestions */}
-                    {message.suggestions && (
-                      <div className="mt-2 space-y-1">
-                        {message.suggestions.map((suggestion, index) => (
-                          <button
-                            key={index}
-                            onClick={() => handleSuggestionClick(suggestion)}
-                            className="block w-full text-left p-2 text-xs bg-blue-50 hover:bg-blue-100 
-                              text-blue-700 rounded-lg transition-colors border border-blue-200"
-                          >
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
                     <div className="text-xs text-gray-500 mt-1">{message.timestamp.toLocaleTimeString()}</div>
                   </div>
 
@@ -217,19 +401,11 @@ export default function AIAssistant() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                      <Bot className="w-4 h-4 text-gray-600" />
+                      <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
                     </div>
                     <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm p-3">
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                        <div
-                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.1s" }}
-                        />
-                        <div
-                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.2s" }}
-                        />
+                      <div className="text-sm text-gray-600">
+                        {debugMode ? "Testing API..." : useEnhancedMode ? "Analyzing data..." : "Streaming response..."}
                       </div>
                     </div>
                   </div>
@@ -239,6 +415,58 @@ export default function AIAssistant() {
 
             {/* Input */}
             <div className="p-4 border-t border-gray-200 bg-white">
+              {/* Mode Controls */}
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Button
+                    onClick={testAPI}
+                    disabled={isTyping}
+                    size="sm"
+                    variant="outline"
+                    className="text-xs bg-transparent"
+                  >
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    Test API
+                  </Button>
+                  <button
+                    onClick={() => setDebugMode(!debugMode)}
+                    className={`text-xs px-2 py-1 rounded transition-colors ${
+                      debugMode
+                        ? "bg-orange-100 text-orange-700 border border-orange-200"
+                        : "bg-gray-100 text-gray-700 border border-gray-200"
+                    }`}
+                  >
+                    {debugMode ? "Debug ON" : "Debug OFF"}
+                  </button>
+                  <button
+                    onClick={() => setUseEnhancedMode(!useEnhancedMode)}
+                    className={`text-xs px-2 py-1 rounded transition-colors ${
+                      useEnhancedMode
+                        ? "bg-green-100 text-green-700 border border-green-200"
+                        : "bg-gray-100 text-gray-700 border border-gray-200"
+                    }`}
+                  >
+                    <Zap className="w-3 h-3 mr-1" />
+                    {useEnhancedMode ? "Enhanced ON" : "Enhanced OFF"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="mb-3 flex flex-wrap gap-1">
+                {quickActions.map((action, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setInput(action)}
+                    className="text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 
+                      rounded-md transition-colors border border-blue-200"
+                    disabled={isTyping}
+                  >
+                    {action}
+                  </button>
+                ))}
+              </div>
+
               <div className="flex space-x-2">
                 <Input
                   type="text"
@@ -255,22 +483,8 @@ export default function AIAssistant() {
                   size="sm"
                   className="bg-blue-600 hover:bg-blue-700"
                 >
-                  <Send className="w-4 h-4" />
+                  {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
-              </div>
-
-              {/* Quick Actions */}
-              <div className="flex flex-wrap gap-1 mt-2">
-                {["Energy tips", "Bill analysis", "Device help"].map((action) => (
-                  <Badge
-                    key={action}
-                    variant="outline"
-                    className="cursor-pointer hover:bg-blue-50 text-xs"
-                    onClick={() => handleSuggestionClick(action)}
-                  >
-                    {action}
-                  </Badge>
-                ))}
               </div>
             </div>
           </motion.div>
