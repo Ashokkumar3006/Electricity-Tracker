@@ -212,60 +212,6 @@ export default function BillCalculator({ connection }: BillCalculatorProps) {
           </Card>
         </div>
       )}
-
-      {/* TNEB Tariff Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle>TNEB LT-1A Tariff Structure</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h4 className="font-semibold text-gray-900 mb-4">Current Slab Rates</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <span className="text-gray-700">0-100 units</span>
-                  <span className="font-semibold text-green-600">FREE</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <span className="text-gray-700">101-200 units</span>
-                  <span className="font-semibold text-gray-900">₹2.25/unit</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <span className="text-gray-700">201-500 units</span>
-                  <span className="font-semibold text-gray-900">₹4.50/unit</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <span className="text-gray-700">501-1000 units</span>
-                  <span className="font-semibold text-gray-900">₹6.00/unit</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <span className="text-gray-700">Above 1000 units</span>
-                  <span className="font-semibold text-red-600">₹8.00/unit</span>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-gray-900 mb-4">Additional Information</h4>
-              <div className="space-y-3 text-sm text-gray-600">
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="font-medium text-blue-800 mb-1">Fixed Charges</p>
-                  <p className="text-blue-700">Monthly fixed charges may apply based on connection type</p>
-                </div>
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="font-medium text-yellow-800 mb-1">Electricity Duty</p>
-                  <p className="text-yellow-700">Electricity duty is included in the calculation</p>
-                </div>
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                  <p className="font-medium text-purple-800 mb-1">Service Tax</p>
-                  <p className="text-purple-700">Service tax applied as per government regulations</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
