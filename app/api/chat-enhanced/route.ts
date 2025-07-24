@@ -39,6 +39,7 @@ export async function POST(req: Request) {
         getGeneralEnergySuggestions,
         getWeatherData,
       },
+      maxToolRoundtrips: 3,
     })
 
     console.log("Step 1 complete. Tool calls made:", dataGatheringResult.toolCalls?.length || 0)

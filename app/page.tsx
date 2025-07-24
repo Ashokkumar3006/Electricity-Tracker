@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
-import Header from "@/components/header"
-import Sidebar from "@/components/sidebar"
-import Dashboard from "@/components/dashboard"
+import ProfessionalHeader from "@/components/professional-header"
+import ProfessionalSidebar from "@/components/professional-sidebar"
+import ProfessionalDashboard from "@/components/professional-dashboard"
 import DeviceMonitoring from "@/components/device-monitoring"
 import Analytics from "@/components/analytics"
 import DataUpload from "@/components/data-upload"
 import BillCalculator from "@/components/bill-calculator"
+import EmailAlertsManagement from "@/components/email-alerts-management"
 import AIAssistant from "@/components/ai-assistant"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -44,7 +45,7 @@ export default function SmartEnergyDashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [connection, setConnection] = useState<ConnectionState>({
     isConnected: false,
-    status: "Checking connection...",
+    status: "Connecting...",
     lastChecked: null,
   })
   const [energyData, setEnergyData] = useState<EnergyData[]>([])
@@ -67,16 +68,16 @@ export default function SmartEnergyDashboard() {
         const data = await response.json()
         setConnection({
           isConnected: true,
-          status: `Connected • Data loaded: ${data.data_loaded ? "Yes" : "No"}`,
+          status: `Connected • ${data.data_loaded ? "Data Loaded" : "No Data"} • ${data.email_alerts_enabled ? "Alerts ON" : "Alerts OFF"}`,
           lastChecked: new Date(),
         })
       } else {
-        throw new Error("Backend returned error status")
+        throw new Error("Service unavailable")
       }
     } catch (error) {
       setConnection({
         isConnected: false,
-        status: `Disconnected • ${error instanceof Error ? error.message : "Unknown error"}`,
+        status: `Offline • ${error instanceof Error ? error.message : "Connection failed"}`,
         lastChecked: new Date(),
       })
     }
@@ -119,7 +120,7 @@ export default function SmartEnergyDashboard() {
 
   useEffect(() => {
     checkBackendConnection()
-    const interval = setInterval(checkBackendConnection, 60000)
+    const interval = setInterval(checkBackendConnection, 30000)
     return () => clearInterval(interval)
   }, [checkBackendConnection])
 
@@ -133,7 +134,7 @@ export default function SmartEnergyDashboard() {
     switch (activeTab) {
       case "dashboard":
         return (
-          <Dashboard
+          <ProfessionalDashboard
             connection={connection}
             energyData={energyData}
             dashboardData={dashboardData}
@@ -149,23 +150,11 @@ export default function SmartEnergyDashboard() {
         return <DataUpload connection={connection} onDataUpload={setEnergyData} onDataLoaded={loadDashboardData} />
       case "calculator":
         return <BillCalculator connection={connection} />
-      case "reports":
-        return (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Reports</h2>
-            <p className="text-gray-600">Reports feature coming soon...</p>
-          </div>
-        )
-      case "help":
-        return (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Help & Support</h2>
-            <p className="text-gray-600">Help documentation coming soon...</p>
-          </div>
-        )
+      case "email-alerts":
+        return <EmailAlertsManagement connection={connection} />
       default:
         return (
-          <Dashboard
+          <ProfessionalDashboard
             connection={connection}
             energyData={energyData}
             dashboardData={dashboardData}
@@ -178,7 +167,7 @@ export default function SmartEnergyDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header
+      <ProfessionalHeader
         connection={connection}
         onRetryConnection={checkBackendConnection}
         sidebarCollapsed={sidebarCollapsed}
@@ -186,7 +175,7 @@ export default function SmartEnergyDashboard() {
       />
 
       <div className="flex">
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} />
+        <ProfessionalSidebar activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} />
 
         <main className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"}`}>
           <div className="p-6">

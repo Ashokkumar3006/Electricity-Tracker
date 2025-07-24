@@ -1,4 +1,4 @@
-"""Enhanced backend_app.py with device-specific monitoring and AI suggestions"""
+"""Enhanced backend_app.py with email alerts and anomaly detection"""
 from __future__ import annotations
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -8,7 +8,17 @@ from sklearn.linear_model import LinearRegression
 from datetime import datetime, timedelta
 import os
 import random
-import json # Import json module for direct dumping
+import json
+import sqlite3
+from dotenv import load_dotenv
+from lib.email_service import email_service
+from lib.anomaly_detector import anomaly_detector
+
+# Load environment variables
+load_dotenv()
+
+# Add this import at the top after other imports
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -20,7 +30,112 @@ df: pd.DataFrame | None = None
 if not os.path.exists('static'):
   os.makedirs('static')
 
-# Device categories and their typical power ranges (used for efficiency calculation, not suggestions)
+# Database setup
+def init_db():
+    """Initialize the database"""
+    try:
+        os.makedirs('data', exist_ok=True)
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        # Create email_recipients table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_recipients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Create email_logs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipient_email TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT NOT NULL,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                error_message TEXT
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("✅ Database initialized successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        return False
+
+def get_smtp_config():
+    """Get SMTP configuration from environment variables"""
+    return {
+        'server': os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
+        'port': int(os.getenv('SMTP_PORT', 587)),
+        'username': os.getenv('SMTP_USERNAME'),
+        'password': os.getenv('SMTP_PASSWORD'),
+        'use_tls': os.getenv('SMTP_USE_TLS', 'true').lower() == 'true',
+        'from_email': os.getenv('FROM_EMAIL'),
+        'from_name': os.getenv('FROM_NAME', 'Smart Energy Monitor')
+    }
+
+def send_email(to_email, subject, message, is_html=False):
+    """Send email using SMTP configuration from environment"""
+    try:
+        config = get_smtp_config()
+        
+        # Validate configuration
+        if not config['username'] or not config['password']:
+            return False, "SMTP credentials not configured in environment variables"
+        
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['From'] = f"{config['from_name']} <{config['from_email']}>"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        # Add message body
+        if is_html:
+            msg.attach(MIMEText(message, 'html'))
+        else:
+            msg.attach(MIMEText(message, 'plain'))
+        
+        # Connect to server and send email
+        server = smtplib.SMTP(config['server'], config['port'])
+        if config['use_tls']:
+            server.starttls()
+        
+        server.login(config['username'], config['password'])
+        server.send_message(msg)
+        server.quit()
+        
+        return True, "Email sent successfully"
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Email sending error: {error_msg}")
+        return False, error_msg
+
+def log_email(recipient_email, subject, message, status, error_message=None):
+    """Log email sending attempt to database"""
+    try:
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO email_logs (recipient_email, subject, message, status, error_message)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (recipient_email, subject, message, status, error_message))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Error logging email: {e}")
+
+# Device categories and their typical power ranges
 DEVICE_CATEGORIES = {
   'AC': {'min_power': 150, 'max_power': 2000, 'efficiency_range': (70, 90)},
   'Fridge': {'min_power': 80, 'max_power': 300, 'efficiency_range': (80, 95)},
@@ -51,7 +166,7 @@ def load_data_from_json(json_data: list[dict]):
   global df
   rows = []
   
-  print(f"DEBUG: load_data_from_json received {len(json_data)} items.") # DEBUG
+  print(f"DEBUG: load_data_from_json received {len(json_data)} items.")
   
   for item in json_data:
       # Handle the specific format with "result" key
@@ -62,7 +177,6 @@ def load_data_from_json(json_data: list[dict]):
           voltage = float(res.get("voltage", 0.0))
           current = float(res.get("current", 0.0))
           electricity = float(res.get("electricity", 0.0))
-          # Explicitly cast to Python bool here
           switch_status = bool(res.get("switch", False)) 
           ts_iso = res.get("update_time")
           
@@ -81,17 +195,25 @@ def load_data_from_json(json_data: list[dict]):
               "voltage": voltage,
               "current": current,
               "electricity": electricity,
-              "switch_status": switch_status # This should now be a native Python bool
+              "switch_status": switch_status
           })
   
   if not rows:
-      print("DEBUG: No valid rows extracted from payload.") # DEBUG
+      print("DEBUG: No valid rows extracted from payload.")
       raise ValueError("No valid rows in payload")
   
   df = pd.DataFrame(rows)
   df["hour"] = df["timestamp"].dt.hour
   df["date"] = df["timestamp"].dt.date
-  print(f"DEBUG: DataFrame loaded with {len(df)} rows. First 5 rows:\n{df.head()}") # DEBUG
+  
+  # Run anomaly detection after loading new data
+  try:
+      anomaly_summary = anomaly_detector.get_anomaly_summary(df)
+      print(f"🔍 Anomaly Detection: Found {anomaly_summary['total_anomalies']} anomalies")
+  except Exception as e:
+      print(f"⚠️ Anomaly detection failed: {e}")
+  
+  print(f"DEBUG: DataFrame loaded with {len(df)} rows.")
   return df
 
 def generate_device_data() -> dict:
@@ -109,8 +231,7 @@ def generate_device_data() -> dict:
           # Get latest reading
           latest_reading = device_df.iloc[-1]
           current_power = float(latest_reading['power'])
-          print(f"DEBUG: Type of switch_status in DataFrame for {device_name} (before assignment): {type(latest_reading['switch_status'])}") # NEW DEBUG
-          is_active = bool(latest_reading['switch_status']) # Should already be Python bool
+          is_active = bool(latest_reading['switch_status'])
           
           # Calculate totals
           total_energy = float(device_df['electricity'].sum())
@@ -124,14 +245,14 @@ def generate_device_data() -> dict:
           suggestions = generate_device_suggestions(device_name, current_power, efficiency, is_active)
           
           # Get hourly usage pattern
-          hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()} # Ensure int keys, float values
+          hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()}
           
           device_data[device_name] = {
               'currentPower': current_power,
               'totalEnergy': total_energy,
               'peakUsage': peak_usage,
               'averagePower': avg_power,
-              'isActive': is_active, # Reflect real device status
+              'isActive': is_active,
               'efficiency': efficiency,
               'suggestions': suggestions,
               'hourlyUsage': hourly_usage,
@@ -280,7 +401,7 @@ def generate_device_suggestions(device_name: str, current_power: float, efficien
   if len(suggestions) < 3:
       suggestions.append(strategic_insights[hash(device_name) % len(strategic_insights)])
   
-  return suggestions[:3]  # Return top 3 sophisticated suggestions
+  return suggestions[:3]
 
 # Tariff slabs
 SLABS_UPTO_500 = [
@@ -360,27 +481,251 @@ def _train_regressor(data_frame: pd.DataFrame):
   daily = data_frame.groupby(data_frame["timestamp"].dt.date)["electricity"].sum().reset_index()
   daily["day_num"] = np.arange(len(daily))
   
-  if len(daily) < 2: # Need at least 2 points to train a linear model
-      print("DEBUG: Not enough unique days for prediction model training.") # NEW DEBUG
+  if len(daily) < 2:
+      print("DEBUG: Not enough unique days for prediction model training.")
       return None, None
       
   model = LinearRegression().fit(daily[["day_num"]], daily["electricity"])
   return model, daily
 
 # ---------------------------------------------------------------------------
-# API ROUTES
+# EMAIL ALERTS API ROUTES
+# ---------------------------------------------------------------------------
+@app.route('/api/email/recipients', methods=['GET'])
+def get_recipients():
+    """Get all email recipients"""
+    try:
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT id, email, name, is_active, created_at FROM email_recipients ORDER BY created_at DESC')
+        recipients = cursor.fetchall()
+        conn.close()
+        
+        result = []
+        for recipient in recipients:
+            result.append({
+                'id': recipient[0],
+                'email': recipient[1],
+                'name': recipient[2],
+                'is_active': bool(recipient[3]),
+                'created_at': recipient[4]
+            })
+        
+        return jsonify({'success': True, 'recipients': result})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/email/recipients', methods=['POST'])
+def add_recipient():
+    """Add new email recipient"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'email' not in data:
+            return jsonify({'success': False, 'error': 'Email is required'}), 400
+        
+        email = data['email'].strip().lower()
+        name = data.get('name', '').strip()
+        
+        # Basic email validation
+        if '@' not in email or '.' not in email:
+            return jsonify({'success': False, 'error': 'Invalid email format'}), 400
+        
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                INSERT INTO email_recipients (email, name, is_active)
+                VALUES (?, ?, 1)
+            ''', (email, name))
+            
+            conn.commit()
+            recipient_id = cursor.lastrowid
+            conn.close()
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Email recipient added successfully',
+                'recipient': {
+                    'id': recipient_id,
+                    'email': email,
+                    'name': name,
+                    'is_active': True
+                }
+            })
+            
+        except sqlite3.IntegrityError:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Email already exists'}), 400
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/email/recipients/<int:recipient_id>', methods=['DELETE'])
+def delete_recipient(recipient_id):
+    """Delete email recipient"""
+    try:
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM email_recipients WHERE id = ?', (recipient_id,))
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Recipient not found'}), 404
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Recipient deleted successfully'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/email/test', methods=['POST'])
+def send_test_email():
+    """Send test email"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'email' not in data:
+            return jsonify({'success': False, 'error': 'Email is required'}), 400
+        
+        test_email = data['email'].strip()
+        
+        # Basic email validation
+        if '@' not in test_email or '.' not in test_email:
+            return jsonify({'success': False, 'error': 'Invalid email format'}), 400
+        
+        # Create test email content
+        subject = "Smart Energy Monitor - Test Email"
+        message = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2563eb;">🔌 Smart Energy Monitor Test Email</h2>
+                
+                <p>Hello!</p>
+                
+                <p>This is a test email from your Smart Energy Monitor system to verify that email notifications are working correctly.</p>
+                
+                <div style="background-color: #f0f9ff; border-left: 4px solid #2563eb; padding: 15px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #1e40af;">✅ Test Successful</h3>
+                    <p style="margin-bottom: 0;">If you're reading this, your email configuration is working properly!</p>
+                </div>
+                
+                <h3>📊 What you can expect:</h3>
+                <ul>
+                    <li><strong>Energy Alerts:</strong> Notifications when consumption exceeds thresholds</li>
+                    <li><strong>Anomaly Detection:</strong> Alerts for unusual consumption patterns</li>
+                    <li><strong>Daily Reports:</strong> Summary of your energy usage</li>
+                    <li><strong>Device Notifications:</strong> Alerts for device malfunctions</li>
+                </ul>
+                
+                <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Test Details:</strong></p>
+                    <ul style="margin: 10px 0;">
+                        <li>Sent to: {test_email}</li>
+                        <li>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</li>
+                        <li>System: Smart Energy Monitor</li>
+                    </ul>
+                </div>
+                
+                <p>If you have any questions or need assistance, please contact your system administrator.</p>
+                
+                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+                <p style="font-size: 12px; color: #6b7280;">
+                    This is an automated message from Smart Energy Monitor.<br>
+                    Please do not reply to this email.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Send the email
+        success, result = send_email(test_email, subject, message, is_html=True)
+        
+        # Log the attempt
+        log_email(test_email, subject, message, 'success' if success else 'failed', None if success else result)
+        
+        if success:
+            return jsonify({
+                'success': True, 
+                'message': f'Test email sent successfully to {test_email}'
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': f'Failed to send test email: {result}'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/email/logs', methods=['GET'])
+def get_email_logs():
+    """Get email sending logs"""
+    try:
+        conn = sqlite3.connect('data/email_alerts.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, recipient_email, subject, status, sent_at, error_message
+            FROM email_logs 
+            ORDER BY sent_at DESC 
+            LIMIT 50
+        ''')
+        
+        logs = cursor.fetchall()
+        conn.close()
+        
+        result = []
+        for log in logs:
+            result.append({
+                'id': log[0],
+                'recipient_email': log[1],
+                'subject': log[2],
+                'status': log[3],
+                'sent_at': log[4],
+                'error_message': log[5]
+            })
+        
+        return jsonify({'success': True, 'logs': result})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/anomalies')
+def get_anomalies():
+    """Get current anomaly detection results."""
+    try:
+        if df is None or df.empty:
+            return jsonify({"anomalies": {}, "summary": {"total_anomalies": 0}, "status": "no_data"})
+        
+        anomaly_summary = anomaly_detector.get_anomaly_summary(df)
+        return jsonify({"anomalies": anomaly_summary, "status": "success"})
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
+
+# ---------------------------------------------------------------------------
+# EXISTING API ROUTES
 # ---------------------------------------------------------------------------
 @app.route("/api/upload", methods=["POST"])
 def r_upload():
-  print("DEBUG: /api/upload endpoint hit.") # DEBUG
+  print("DEBUG: /api/upload endpoint hit.")
   try:
       payload = request.get_json(force=True)
-      print(f"DEBUG: Received payload with {len(payload)} items.") # DEBUG
+      print(f"DEBUG: Received payload with {len(payload)} items.")
       load_data_from_json(payload)
-      print(f"DEBUG: Data loaded successfully. Total rows in df: {len(df) if df is not None else 0}") # DEBUG
+      print(f"DEBUG: Data loaded successfully. Total rows in df: {len(df) if df is not None else 0}")
       return jsonify({"rows_loaded": len(df), "status": "success"})
   except Exception as e:
-      print(f"ERROR: Upload failed: {e}") # DEBUG
+      print(f"ERROR: Upload failed: {e}")
       return jsonify({"error": str(e), "status": "error"}), 400
 
 @app.route("/api/peak")
@@ -430,7 +775,7 @@ def r_suggestions():
       
       if peak == "evening":
           evening_percentage = (period_kwh.get("evening", 0) / total_kwh * 100) if total_kwh > 0 else 0
-          cost_impact = evening_percentage * 0.35  # Approximate premium cost impact
+          cost_impact = evening_percentage * 0.35
           suggestions.append(f"🎯 Peak Evening Usage Alert: {evening_percentage:.1f}% consumption during premium hours. Load shifting strategy can reduce costs by ₹{cost_impact*10:.0f}/month through smart scheduling automation.")
       elif peak == "afternoon":
           afternoon_percentage = (period_kwh.get("afternoon", 0) / total_kwh * 100) if total_kwh > 0 else 0
@@ -444,10 +789,10 @@ def r_suggestions():
   high_consumers = [(name, data) for name, data in device_data.items() if data['currentPower'] > total_power * 0.2]
   
   if high_consumers:
-      for device_name, data in high_consumers[:2]:  # Top 2 consumers
+      for device_name, data in high_consumers[:2]:
           efficiency = data['efficiency']
           power = data['currentPower']
-          monthly_cost = power * 24 * 30 * 5.5 / 1000  # Approximate monthly cost
+          monthly_cost = power * 24 * 30 * 5.5 / 1000
           
           if efficiency < 80:
               potential_savings = monthly_cost * (85 - efficiency) / 100
@@ -463,7 +808,7 @@ def r_suggestions():
       suggestions.append(f"🏠 Smart Home Optimization: System efficiency at {avg_efficiency:.1f}% with {system_improvement:.0f}W improvement potential. IoT integration and AI automation can achieve 15-25% overall cost reduction.")
   
   # Strategic technology recommendations
-  if total_power > 1000:  # High consumption household
+  if total_power > 1000:
       suggestions.append("🔋 Energy Storage Opportunity: High consumption profile ideal for battery + solar system. ROI analysis shows 6-8 year payback with 60-80% grid independence achievable.")
   
   # Add predictive maintenance insight
@@ -479,27 +824,27 @@ def r_suggestions():
           "💡 Strategic Upgrade Path: Energy monitoring analytics suggest smart grid integration opportunities for enhanced performance."
       ])
   
-  return jsonify({"suggestions": suggestions[:5]})  # Return top 5 strategic suggestions
+  return jsonify({"suggestions": suggestions[:5]})
 
 @app.route("/api/devices")
 def r_devices():
   """Get device-specific data and analysis."""
   device_data = generate_device_data()
-  print(f"DEBUG: r_devices data before JSON serialization:") # DEBUG
-  for device_name, details in device_data.items(): # DEBUG
-      print(f"  Device: {device_name}") # DEBUG
-      for key, value in details.items(): # DEBUG
-          print(f"    Key: {key}, Type: {type(value)}, Value: {value}") # DEBUG
+  print(f"DEBUG: r_devices data before JSON serialization:")
+  for device_name, details in device_data.items():
+      print(f"  Device: {device_name}")
+      for key, value in details.items():
+          print(f"    Key: {key}, Type: {type(value)}, Value: {value}")
   try:
-      json_output = json.dumps(device_data) # Use json.dumps directly for more control
-      print(f"DEBUG: r_devices successfully serialized data.") # DEBUG
+      json_output = json.dumps(device_data)
+      print(f"DEBUG: r_devices successfully serialized data.")
       return app.response_class(
           response=json_output,
           status=200,
           mimetype='application/json'
       )
   except TypeError as e:
-      print(f"ERROR: JSON serialization failed in r_devices: {e}") # DEBUG
+      print(f"ERROR: JSON serialization failed in r_devices: {e}")
       return jsonify({"error": f"Serialization error: {e}", "status": "error"}), 500
 
 @app.route("/api/device/<device_name>")
@@ -520,15 +865,15 @@ def r_device_details(device_name):
   peak_usage = float(device_df['power'].max())
   avg_power = float(device_df['power'].mean())
   efficiency = calculate_device_efficiency(device_df, device_name)
-  print(f"DEBUG: Type of switch_status in DataFrame for {device_name} (details before assignment): {type(latest_reading['switch_status'])}") # NEW DEBUG
-  is_active = bool(latest_reading['switch_status']) # Should already be Python bool
+  print(f"DEBUG: Type of switch_status in DataFrame for {device_name} (details before assignment): {type(latest_reading['switch_status'])}")
+  is_active = bool(latest_reading['switch_status'])
   
   # Usage patterns
-  hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()} # Ensure int keys, float values
+  hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()}
   daily_usage = device_df.groupby(device_df["timestamp"].dt.date)['electricity'].sum().to_dict()
   
   # Convert date keys to strings for JSON serialization
-  daily_usage_str = {str(k): float(v) for k, v in daily_usage.items()} # Ensure float values
+  daily_usage_str = {str(k): float(v) for k, v in daily_usage.items()}
   
   # Get data-driven suggestions for this specific device
   suggestions = generate_device_suggestions(device_name, current_power, efficiency, is_active)
@@ -562,7 +907,7 @@ def r_device_details(device_name):
 @app.route("/api/weather")
 def r_weather():
     """Simulate fetching current weather data for a given city."""
-    city = request.args.get("city", "Chennai") # Default to Chennai if no city is provided
+    city = request.args.get("city", "Chennai")
     
     # Simulate weather conditions
     temperatures = {
@@ -587,28 +932,18 @@ def r_weather():
         "message": f"Simulated weather for {city}"
     })
 
-@app.route("/api/health")
+@app.route('/health', methods=['GET'])
 def health_check():
-  try:
-      total_records = len(df) if df is not None else 0
-      devices_detected = len(generate_device_data()) if df is not None else 0
-      return jsonify({
-          "status": "healthy",
-          "data_loaded": df is not None,
-          "total_records": total_records,
-          "devices_detected": devices_detected
-      })
-  except Exception as e:
-      app.logger.error(f"Error in health_check: {e}")
-      return jsonify({
-          "status": "unhealthy",
-          "data_loaded": False,
-          "error": str(e)
-      }), 500
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
-if __name__ == "__main__":
-  print("🚀 Smart Energy Tracker Backend Starting...")
-  print("📊 Dashboard available at: http://localhost:5000")
-  print("🔗 API endpoints available at: http://localhost:5000/api/")
-  print("🤖 Device monitoring and AI suggestions enabled")
-  app.run(debug=True, port=5000, host='0.0.0.0')
+if __name__ == '__main__':
+    print("🚀 Starting Smart Energy Monitor Backend...")
+    
+    # Initialize database
+    if init_db():
+        print("📧 Email system ready")
+        print("🌐 Starting server on http://localhost:5000")
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    else:
+        print("❌ Failed to initialize database. Exiting.")
