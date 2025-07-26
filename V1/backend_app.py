@@ -1071,6 +1071,23 @@ def create_alert_setting():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/alert-settings/<int:setting_id>", methods=["DELETE"])
+def delete_alert_setting(setting_id):
+    """Delete an alert setting"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM alert_settings WHERE id = ?", (setting_id,))
+            conn.commit()
+            
+            if cursor.rowcount == 0:
+                return jsonify({"error": "Alert setting not found"}), 404
+            
+            return jsonify({"message": "Alert setting deleted successfully"})
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/email-recipients", methods=["GET"])
 def get_email_recipients():
     """Get all email recipients"""

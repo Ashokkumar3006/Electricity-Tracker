@@ -859,40 +859,9 @@ export default function AlertManagement({ connection }: AlertManagementProps) {
               </Button>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Gmail Setup Instructions</h4>
-                <div className="text-sm text-blue-800 space-y-2">
-                  <p>
-                    <strong>Step 1:</strong> Enable 2-Factor Authentication on your Gmail account
-                  </p>
-                  <p>
-                    <strong>Step 2:</strong> Generate an App Password:
-                  </p>
-                  <ul className="ml-4 space-y-1">
-                    <li>
-                      • Go to{" "}
-                      <a
-                        href="https://myaccount.google.com/apppasswords"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline"
-                      >
-                        Google App Passwords
-                      </a>
-                    </li>
-                    <li>• Select "Mail" as the app</li>
-                    <li>• Copy the 16-character password (remove spaces)</li>
-                  </ul>
-                  <p>
-                    <strong>Step 3:</strong> Update your .env file:
-                  </p>
-                  <div className="bg-blue-100 p-2 rounded font-mono text-xs mt-2">
-                    SENDER_EMAIL=your-email@gmail.com
-                    <br />
-                    SENDER_PASSWORD=your16charapppassword
-                  </div>
-                  <p className="text-red-700 font-medium">
-                    <strong>Important:</strong> Remove all spaces from the App Password!
-                  </p>
+                <h4 className="font-medium text-blue-900 mb-2">Email Configuration</h4>
+                <div className="text-sm text-blue-800">
+                  <p>Make sure your email settings are configured in the .env file before sending test alerts.</p>
                 </div>
               </div>
             </CardContent>
