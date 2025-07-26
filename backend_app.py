@@ -1,5 +1,8 @@
 """Enhanced backend_app.py with email alerts and anomaly detection"""
 from __future__ import annotations
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import smtplib
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
