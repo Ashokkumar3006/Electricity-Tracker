@@ -14,19 +14,6 @@ interface Message {
   suggestions?: string[]
 }
 
-// Typing indicator component
-const TypingIndicator = () => {
-  return (
-    <div className="flex items-center space-x-1">
-      <div className="flex space-x-1">
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
-      </div>
-    </div>
-  )
-}
-
 export default function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
@@ -55,7 +42,23 @@ export default function AIAssistant() {
     setInput("")
     setIsTyping(true)
 
+    const aiPlaceholderMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      type: "ai",
+      content: "",
+      timestamp: new Date(),
+    }
+
     try {
+      setMessages((prev) => [...prev, aiPlaceholderMessage])
+
+      // Use enhanced API (two-step process)
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiPlaceholderMessage.id ? { ...msg, content: "🔍 Gathering your energy data..." } : msg,
+        ),
+      )
+
       const response = await fetch("/api/chat-enhanced", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -75,13 +78,9 @@ export default function AIAssistant() {
       const data = await response.json()
 
       if (data.message) {
-        const aiMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: "ai",
-          content: data.message,
-          timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, aiMessage])
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === aiPlaceholderMessage.id ? { ...msg, content: data.message } : msg)),
+        )
       } else {
         throw new Error("AI service returned no response")
       }
@@ -89,13 +88,16 @@ export default function AIAssistant() {
       console.error("Error sending message to AI:", error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"
 
-      const errorAiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: "ai",
-        content: `❌ **Error**: ${errorMessage}\n\n💡 **Troubleshooting**:\n• Make sure your OpenAI API key is set\n• Check that the backend server is running\n• Try asking a simpler question\n\nPlease try again in a moment.`,
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorAiMessage])
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiPlaceholderMessage.id
+            ? {
+                ...msg,
+                content: `❌ **Error**: ${errorMessage}\n\n💡 **Troubleshooting**:\n• Make sure your OpenAI API key is set\n• Check that the backend server is running\n• Try asking a simpler question\n\nPlease try again in a moment.`,
+              }
+            : msg,
+        ),
+      )
     } finally {
       setIsTyping(false)
     }
@@ -190,10 +192,10 @@ export default function AIAssistant() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                      <Bot className="w-4 h-4 text-gray-600" />
+                      <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
                     </div>
-                    <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm p-3 flex items-center justify-center min-h-[44px]">
-                      <TypingIndicator />
+                    <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm p-3">
+                      <div className="text-sm text-gray-600">Analyzing your energy data...</div>
                     </div>
                   </div>
                 </motion.div>

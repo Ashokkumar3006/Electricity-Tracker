@@ -2,14 +2,14 @@
 
 # dependencies
 /node_modules
-/__pycache__
+
 # next.js
 /.next/
 /out/
-/energy
+
 # production
 /build
-/env
+
 # debug
 npm-debug.log*
 yarn-debug.log*

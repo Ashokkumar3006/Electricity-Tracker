@@ -8,7 +8,7 @@ from sklearn.linear_model import LinearRegression
 from datetime import datetime, timedelta
 import os
 import random
-import json
+import json # Import json module for direct dumping
 import threading
 import time
 from typing import Optional
@@ -38,11 +38,11 @@ if not os.path.exists('static'):
 DATABASE_PATH = 'energy_alerts.db'
 
 def init_database():
-    """Initialize the SQLite database"""
+    """Initialize the SQLite database with device-specific threshold support"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
-    # Create alert_settings table
+    # Create alert_settings table with device-specific support
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alert_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,213 +98,16 @@ def get_db_connection():
         conn.close()
 
 # Import the improved EmailService
-try:
-    from email_service_improved import EmailService
-    email_service = EmailService()
-except ImportError:
-    print("Warning: EmailService not available. Email functionality will be disabled.")
-    email_service = None
+from email_service_improved import EmailService
 
-# Anomaly detection class
-class AnomalyDetector:
-    def __init__(self):
-        self.baseline_data = None
-        
-    def train_model(self, data):
-        """Train the anomaly detection model with baseline data"""
-        self.baseline_data = data
-        
-    def detect_peak_power_anomalies(self, recent_data, thresholds):
-        """Detect peak power anomalies"""
-        anomalies = []
-        
-        peak_threshold = thresholds.get('peak_power', 1000)
-        
-        for reading in recent_data:
-            power = reading.get('power', 0)
-            if power > peak_threshold:
-                anomalies.append({
-                    'anomaly_type': 'peak_power',
-                    'device': reading.get('device_name', reading.get('device', 'Unknown')),
-                    'actual_value': power,
-                    'threshold_value': peak_threshold,
-                    'exceeded_by': power - peak_threshold,
-                    'percentage_exceeded': ((power - peak_threshold) / peak_threshold) * 100,
-                    'severity': self._calculate_severity(power, peak_threshold),
-                    'unit': 'W',
-                    'description': f"Peak power of {power:.1f}W exceeded threshold of {peak_threshold:.1f}W"
-                })
-        
-        return anomalies
-    
-    def detect_energy_spike_anomalies(self, recent_data, thresholds):
-        """Detect energy spike anomalies"""
-        anomalies = []
-        
-        if len(recent_data) < 2:
-            return anomalies
-            
-        spike_threshold = thresholds.get('energy_spike', 50)  # 50% increase
-        
-        for i in range(1, len(recent_data)):
-            current = recent_data[i]
-            previous = recent_data[i-1]
-            
-            current_power = current.get('power', 0)
-            previous_power = previous.get('power', 0)
-            
-            if previous_power > 0:
-                increase_percentage = ((current_power - previous_power) / previous_power) * 100
-                
-                if increase_percentage > spike_threshold:
-                    anomalies.append({
-                        'anomaly_type': 'energy_spike',
-                        'device': current.get('device_name', current.get('device', 'Unknown')),
-                        'actual_value': current_power,
-                        'threshold_value': previous_power * (1 + spike_threshold/100),
-                        'exceeded_by': current_power - previous_power,
-                        'percentage_exceeded': increase_percentage,
-                        'severity': self._calculate_severity_spike(increase_percentage),
-                        'unit': 'W',
-                        'description': f"Energy spike of {increase_percentage:.1f}% detected"
-                    })
-        
-        return anomalies
-    
-    def detect_anomalies(self, recent_data):
-        """Detect general anomalies using statistical methods"""
-        anomalies = []
-        
-        if not self.baseline_data or len(recent_data) < 5:
-            return anomalies
-        
-        # Group by device
-        devices = {}
-        for reading in recent_data:
-            device = reading.get('device_name', reading.get('device', 'Unknown'))
-            if device not in devices:
-                devices[device] = []
-            devices[device].append(reading.get('power', 0))
-        
-        # Check each device for anomalies
-        for device, powers in devices.items():
-            if len(powers) < 3:
-                continue
-                
-            avg_power = np.mean(powers)
-            std_power = np.std(powers)
-            
-            # Find baseline for this device
-            baseline_powers = []
-            for reading in self.baseline_data:
-                if reading.get('device_name', reading.get('device', '')) == device:
-                    baseline_powers.append(reading.get('power', 0))
-            
-            if baseline_powers:
-                baseline_avg = np.mean(baseline_powers)
-                baseline_std = np.std(baseline_powers)
-                
-                # Check if current average is significantly different
-                if baseline_std > 0:
-                    z_score = abs(avg_power - baseline_avg) / baseline_std
-                    
-                    if z_score > 2:  # 2 standard deviations
-                        anomalies.append({
-                            'anomaly_type': 'device_anomaly',
-                            'device': device,
-                            'actual_value': avg_power,
-                            'threshold_value': baseline_avg,
-                            'exceeded_by': abs(avg_power - baseline_avg),
-                            'percentage_exceeded': abs((avg_power - baseline_avg) / baseline_avg) * 100,
-                            'severity': 'medium' if z_score < 3 else 'high',
-                            'unit': 'W',
-                            'description': f"Unusual power consumption pattern detected for {device}"
-                        })
-        
-        return anomalies
-    
-    def _calculate_severity(self, actual, threshold):
-        """Calculate severity based on how much threshold is exceeded"""
-        ratio = actual / threshold
-        if ratio < 1.2:
-            return 'low'
-        elif ratio < 1.5:
-            return 'medium'
-        elif ratio < 2.0:
-            return 'high'
-        else:
-            return 'critical'
-    
-    def _calculate_severity_spike(self, percentage):
-        """Calculate severity for energy spikes"""
-        if percentage < 75:
-            return 'low'
-        elif percentage < 150:
-            return 'medium'
-        elif percentage < 300:
-            return 'high'
-        else:
-            return 'critical'
-
-    def detect_device_specific_anomalies(self, recent_data, device_thresholds, global_thresholds):
-        """Detect anomalies with device-specific thresholds"""
-        anomalies = []
-        
-        for reading in recent_data:
-            device_name = reading.get('device_name', reading.get('device', 'Unknown'))
-            power = reading.get('power', 0)
-            
-            # Check for peak power anomalies
-            device_peak_threshold = device_thresholds.get(device_name, {}).get('peak_power')
-            global_peak_threshold = global_thresholds.get('peak_power')
-            
-            peak_threshold = device_peak_threshold or global_peak_threshold
-            
-            if peak_threshold and power > peak_threshold:
-                anomalies.append({
-                    'anomaly_type': 'peak_power',
-                    'device': device_name,
-                    'actual_value': power,
-                    'threshold_value': peak_threshold,
-                    'exceeded_by': power - peak_threshold,
-                    'percentage_exceeded': ((power - peak_threshold) / peak_threshold) * 100,
-                    'severity': self._calculate_severity(power, peak_threshold),
-                    'unit': 'W',
-                    'description': f"Peak power of {power:.1f}W exceeded threshold of {peak_threshold:.1f}W"
-                })
-            
-            # Check for energy spike anomalies
-            device_spike_threshold = device_thresholds.get(device_name, {}).get('energy_spike')
-            global_spike_threshold = global_thresholds.get('energy_spike')
-            
-            spike_threshold = device_spike_threshold or global_spike_threshold
-            
-            if len(recent_data) > 1:
-                previous_reading = recent_data[-2]
-                previous_power = previous_reading.get('power', 0)
-                
-                if previous_power > 0 and spike_threshold:
-                    increase_percentage = ((power - previous_power) / previous_power) * 100
-                    
-                    if increase_percentage > spike_threshold:
-                        anomalies.append({
-                            'anomaly_type': 'energy_spike',
-                            'device': device_name,
-                            'actual_value': power,
-                            'threshold_value': previous_power * (1 + spike_threshold/100),
-                            'exceeded_by': power - previous_power,
-                            'percentage_exceeded': increase_percentage,
-                            'severity': self._calculate_severity_spike(increase_percentage),
-                            'unit': 'W',
-                            'description': f"Energy spike of {increase_percentage:.1f}% detected"
-                        })
-        
-        return anomalies
+# Import the enhanced AnomalyDetector
+from anomaly_detector import AnomalyDetector
 
 # Initialize services
+email_service = EmailService()
 anomaly_detector = AnomalyDetector()
 
-# Device categories and their typical power ranges
+# Device categories and their typical power ranges (used for efficiency calculation, not suggestions)
 DEVICE_CATEGORIES = {
     'AC': {'min_power': 150, 'max_power': 2000, 'efficiency_range': (70, 90)},
     'Fridge': {'min_power': 80, 'max_power': 300, 'efficiency_range': (80, 95)},
@@ -315,6 +118,19 @@ DEVICE_CATEGORIES = {
 }
 
 # ---------------------------------------------------------------------------
+# SERVE STATIC FILES (HTML, CSS, JS)
+# ---------------------------------------------------------------------------
+@app.route('/')
+def serve_frontend():
+    """Serve the main HTML file"""
+    return send_from_directory('static', 'index.html')
+
+@app.route('/static/<path:filename>')
+def serve_static_files(filename):
+    """Serve static files (CSS, JS, images)"""
+    return send_from_directory('static', filename)
+
+# ---------------------------------------------------------------------------
 # DATA PROCESSING FUNCTIONS
 # ---------------------------------------------------------------------------
 def load_data_from_json(json_data: list[dict]):
@@ -322,7 +138,7 @@ def load_data_from_json(json_data: list[dict]):
     global df
     rows = []
     
-    print(f"DEBUG: load_data_from_json received {len(json_data)} items.")
+    print(f"DEBUG: load_data_from_json received {len(json_data)} items.") # DEBUG
     
     for item in json_data:
         # Handle the specific format with "result" key
@@ -333,7 +149,8 @@ def load_data_from_json(json_data: list[dict]):
             voltage = float(res.get("voltage", 0.0))
             current = float(res.get("current", 0.0))
             electricity = float(res.get("electricity", 0.0))
-            switch_status = bool(res.get("switch", False))
+            # Explicitly cast to Python bool here
+            switch_status = bool(res.get("switch", False)) 
             ts_iso = res.get("update_time")
             
             try:
@@ -351,7 +168,7 @@ def load_data_from_json(json_data: list[dict]):
                 "voltage": voltage,
                 "current": current,
                 "electricity": electricity,
-                "switch_status": switch_status
+                "switch_status": switch_status # This should now be a native Python bool
             })
         else:
             # Handle direct format
@@ -365,6 +182,7 @@ def load_data_from_json(json_data: list[dict]):
             
             try:
                 if ts_iso:
+                    # Handle different timestamp formats
                     if 'T' in ts_iso:
                         ts = datetime.fromisoformat(ts_iso.replace('Z', '+00:00'))
                     else:
@@ -385,13 +203,13 @@ def load_data_from_json(json_data: list[dict]):
             })
     
     if not rows:
-        print("DEBUG: No valid rows extracted from payload.")
+        print("DEBUG: No valid rows extracted from payload.") # DEBUG
         raise ValueError("No valid rows in payload")
     
     df = pd.DataFrame(rows)
     df["hour"] = df["timestamp"].dt.hour
     df["date"] = df["timestamp"].dt.date
-    print(f"DEBUG: DataFrame loaded with {len(df)} rows.")
+    print(f"DEBUG: DataFrame loaded with {len(df)} rows. First 5 rows:\n{df.head()}") # DEBUG
     
     # Train anomaly detector with new data
     anomaly_detector.train_model(json_data)
@@ -413,7 +231,8 @@ def generate_device_data() -> dict:
             # Get latest reading
             latest_reading = device_df.iloc[-1]
             current_power = float(latest_reading['power'])
-            is_active = bool(latest_reading['switch_status'])
+            print(f"DEBUG: Type of switch_status in DataFrame for {device_name} (before assignment): {type(latest_reading['switch_status'])}") # NEW DEBUG
+            is_active = bool(latest_reading['switch_status']) # Should already be Python bool
             
             # Calculate totals
             total_energy = float(device_df['electricity'].sum())
@@ -427,14 +246,14 @@ def generate_device_data() -> dict:
             suggestions = generate_device_suggestions(device_name, current_power, efficiency, is_active)
             
             # Get hourly usage pattern
-            hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()}
+            hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()} # Ensure int keys, float values
             
             device_data[device_name] = {
                 'currentPower': current_power,
                 'totalEnergy': total_energy,
                 'peakUsage': peak_usage,
                 'averagePower': avg_power,
-                'isActive': is_active,
+                'isActive': is_active, # Reflect real device status
                 'efficiency': efficiency,
                 'suggestions': suggestions,
                 'hourlyUsage': hourly_usage,
@@ -663,88 +482,57 @@ def _train_regressor(data_frame: pd.DataFrame):
     daily = data_frame.groupby(data_frame["timestamp"].dt.date)["electricity"].sum().reset_index()
     daily["day_num"] = np.arange(len(daily))
     
-    if len(daily) < 2:
-        print("DEBUG: Not enough unique days for prediction model training.")
+    if len(daily) < 2: # Need at least 2 points to train a linear model
+        print("DEBUG: Not enough unique days for prediction model training.") # NEW DEBUG
         return None, None
         
     model = LinearRegression().fit(daily[["day_num"]], daily["electricity"])
     return model, daily
 
-def predict_energy_consumption(days: int) -> dict:
-    """Predict energy consumption for specified number of days"""
-    if df is None:
-        return {"error": "data_not_loaded"}
-    
-    model, daily = _train_regressor(df)
-    if model is None:
-        return {"error": "not_enough_data_for_prediction"}
-    
-    # Get the last day number
-    last_day = daily["day_num"].max()
-    
-    # Create future days array
-    future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
-    
-    # Predict energy consumption
-    predicted_daily = model.predict(future_days)
-    
-    # Calculate total predicted consumption
-    total_predicted_kwh = float(predicted_daily.sum())
-    
-    # Calculate bill
-    bill = calculate_bill(total_predicted_kwh)
-    
-    # Calculate daily averages
-    daily_avg_kwh = total_predicted_kwh / days
-    daily_avg_cost = bill['total_amount'] / days
-    
-    # Add some realistic variation based on historical data
-    if len(daily) > 1:
-        historical_std = daily['electricity'].std()
-        # Add some uncertainty to the prediction
-        uncertainty_factor = min(0.15, historical_std / daily['electricity'].mean())
-        total_predicted_kwh *= (1 + random.uniform(-uncertainty_factor, uncertainty_factor))
-        bill = calculate_bill(total_predicted_kwh)
-    
-    return {
-        "predicted_kwh": round(total_predicted_kwh, 2),
-        "bill": bill,
-        "daily_avg_kwh": round(daily_avg_kwh, 2),
-        "daily_avg_cost": round(daily_avg_cost, 2),
-        "prediction_period_days": days,
-        "confidence": "high" if len(daily) > 7 else "medium" if len(daily) > 3 else "low"
-    }
+def get_device_thresholds():
+    """Get all device-specific thresholds from database"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT device_name, setting_name, threshold_value, threshold_type, is_enabled 
+            FROM alert_settings 
+            WHERE device_name IS NOT NULL AND is_enabled = 1
+        ''')
+        
+        settings = cursor.fetchall()
+        
+        device_thresholds = {}
+        for setting in settings:
+            device_name = setting['device_name']
+            if device_name not in device_thresholds:
+                device_thresholds[device_name] = {}
+            
+            device_thresholds[device_name][setting['setting_name']] = {
+                'value': setting['threshold_value'],
+                'type': setting['threshold_type'],
+                'enabled': bool(setting['is_enabled'])
+            }
+        
+        return device_thresholds
 
 def check_for_anomalies():
-    """Background task to check for anomalies"""
+    """Background task to check for anomalies with device-specific thresholds"""
     while True:
         try:
             if df is not None and len(df) > 0:
                 with get_db_connection() as conn:
-                    # Get current alert settings with device-specific support
+                    # Get current alert settings (global)
                     cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM alert_settings WHERE is_enabled = 1")
-                    settings = cursor.fetchall()
-
-                    # Organize thresholds by device and alert type
-                    device_thresholds = {}
-                    global_thresholds = {}
-
-                    for setting in settings:
-                        setting_name = setting['setting_name']
-                        device_name = setting['device_name']
-                        threshold_value = setting['threshold_value']
-                        
-                        if device_name:  # Device-specific threshold
-                            if device_name not in device_thresholds:
-                                device_thresholds[device_name] = {}
-                            device_thresholds[device_name][setting_name] = threshold_value
-                        else:  # Global threshold
-                            global_thresholds[setting_name] = threshold_value
-
+                    cursor.execute("SELECT * FROM alert_settings WHERE is_enabled = 1 AND device_name IS NULL")
+                    global_settings = cursor.fetchall()
+                    global_thresholds = {setting['setting_name']: setting['threshold_value'] for setting in global_settings}
+                    
+                    # Get device-specific thresholds
+                    device_thresholds = get_device_thresholds()
+                    
                     # Get current device data
                     device_data = generate_device_data()
-
+                    
                     # Convert recent data for anomaly detection
                     recent_data = []
                     recent_df = df.tail(10)  # Last 10 readings
@@ -753,14 +541,33 @@ def check_for_anomalies():
                             'device_name': row['device_name'],
                             'device': row['device_name'],  # For compatibility
                             'power': row['power'],
+                            'voltage': row['voltage'],
+                            'current': row['current'],
+                            'energy_kwh': row['electricity'],
+                            'electricity': row['electricity'],
                             'timestamp': row['timestamp'].isoformat()
                         })
-
-                    # Detect anomalies with device-specific thresholds
-                    anomalies = []
-                    anomalies.extend(anomaly_detector.detect_device_specific_anomalies(recent_data, device_thresholds, global_thresholds))
                     
-                    if anomalies and email_service:
+                    # Detect anomalies
+                    anomalies = []
+                    
+                    # Device-specific anomalies (priority)
+                    device_specific_anomalies = anomaly_detector.detect_device_specific_anomalies(recent_data, device_thresholds)
+                    anomalies.extend(device_specific_anomalies)
+                    
+                    # Global anomalies (fallback)
+                    if global_thresholds:
+                        global_anomalies = anomaly_detector.detect_peak_power_anomalies(recent_data, global_thresholds)
+                        anomalies.extend(global_anomalies)
+                        
+                        spike_anomalies = anomaly_detector.detect_energy_spike_anomalies(recent_data, global_thresholds)
+                        anomalies.extend(spike_anomalies)
+                    
+                    # General ML-based anomalies
+                    ml_anomalies = anomaly_detector.detect_anomalies(recent_data)
+                    anomalies.extend(ml_anomalies)
+                    
+                    if anomalies:
                         # Get active email recipients
                         cursor.execute("SELECT * FROM email_recipients WHERE is_active = 1")
                         recipients = cursor.fetchall()
@@ -778,10 +585,12 @@ def check_for_anomalies():
                                 alert_data = {
                                     'alert_type': anomaly['anomaly_type'],
                                     'device_name': anomaly['device'],
-                                    'threshold_value': anomaly['threshold_value'],
-                                    'actual_value': anomaly['actual_value'],
-                                    'severity': anomaly['severity'],
-                                    'unit': anomaly['unit'],
+                                    'threshold_value': anomaly.get('threshold_value', 0),
+                                    'actual_value': anomaly.get('actual_value', 0),
+                                    'exceeded_by': anomaly.get('exceeded_by', 0),
+                                    'percentage_exceeded': anomaly.get('percentage_exceeded', 0),
+                                    'severity': anomaly.get('severity', 'medium'),
+                                    'unit': anomaly.get('unit', 'W'),
                                     'message': anomaly['description']
                                 }
                                 
@@ -795,8 +604,8 @@ def check_for_anomalies():
                                 """, (
                                     anomaly['anomaly_type'],
                                     anomaly['device'],
-                                    anomaly['threshold_value'],
-                                    anomaly['actual_value'],
+                                    anomaly.get('threshold_value', 0),
+                                    anomaly.get('actual_value', 0),
                                     anomaly['description'],
                                     json.dumps(result.get('sent_to', [])),
                                     'sent' if result['success'] else 'failed'
@@ -804,7 +613,7 @@ def check_for_anomalies():
                                 conn.commit()
                                 
                                 print(f"Alert sent: {anomaly['description']} to {len(result.get('sent_to', []))} recipients")
-              
+                
         except Exception as e:
             print(f"Error in anomaly checking: {str(e)}")
         
@@ -816,37 +625,19 @@ def check_for_anomalies():
 # ---------------------------------------------------------------------------
 @app.route("/api/upload", methods=["POST"])
 def r_upload():
-    print("DEBUG: /api/upload endpoint hit.")
+    print("DEBUG: /api/upload endpoint hit.") # DEBUG
     try:
-        # Check if it's a file upload or JSON data
-        if request.files and 'file' in request.files:
-            # Handle file upload
-            file = request.files['file']
-            if file.filename == '':
-                return jsonify({"error": "No file selected", "status": "error"}), 400
+        # Handle JSON data directly
+        payload = request.get_json(force=True)
+        if not payload:
+            return jsonify({"error": "No JSON data provided", "status": "error"}), 400
             
-            # Read file content
-            if file.filename.endswith('.json'):
-                import json
-                payload = json.load(file)
-            elif file.filename.endswith('.csv'):
-                import pandas as pd
-                df_temp = pd.read_csv(file)
-                payload = df_temp.to_dict('records')
-            else:
-                return jsonify({"error": "Unsupported file format. Please use JSON or CSV.", "status": "error"}), 400
-        else:
-            # Handle JSON data directly
-            payload = request.get_json(force=True)
-            if not payload:
-                return jsonify({"error": "No JSON data provided", "status": "error"}), 400
-        
-        print(f"DEBUG: Received payload with {len(payload)} items.")
+        print(f"DEBUG: Received payload with {len(payload)} items.") # DEBUG
         load_data_from_json(payload)
-        print(f"DEBUG: Data loaded successfully. Total rows in df: {len(df) if df is not None else 0}")
+        print(f"DEBUG: Data loaded successfully. Total rows in df: {len(df) if df is not None else 0}") # DEBUG
         return jsonify({"rows_loaded": len(df), "status": "success"})
     except Exception as e:
-        print(f"ERROR: Upload failed: {e}")
+        print(f"ERROR: Upload failed: {e}") # DEBUG
         return jsonify({"error": str(e), "status": "error"}), 400
 
 @app.route("/api/peak")
@@ -862,15 +653,19 @@ def r_bill():
 
 @app.route("/api/predict")
 def r_predict():
-    """Enhanced prediction endpoint with support for different time periods"""
-    days = request.args.get("days", default=30, type=int)
+    if df is None:
+        return jsonify({"error": "data_not_loaded"}), 400
     
-    # Validate days parameter
-    if days < 1 or days > 365:
-        return jsonify({"error": "Days must be between 1 and 365"}), 400
+    model, daily = _train_regressor(df)
+    if model is None:
+        return jsonify({"error": "not_enough_data_for_prediction"}), 400
+        
+    last_day = daily["day_num"].max()
+    future = np.arange(last_day + 1, last_day + 31).reshape(-1, 1)
+    pred_kwh = float(model.predict(future).sum())
+    bill = calculate_bill(pred_kwh)
     
-    result = predict_energy_consumption(days)
-    return jsonify(result)
+    return jsonify({"predicted_kwh": round(pred_kwh, 2), "bill": bill})
 
 @app.route("/api/suggestions")
 def r_suggestions():
@@ -947,15 +742,21 @@ def r_suggestions():
 def r_devices():
     """Get device-specific data and analysis."""
     device_data = generate_device_data()
+    print(f"DEBUG: r_devices data before JSON serialization:") # DEBUG
+    for device_name, details in device_data.items(): # DEBUG
+        print(f"  Device: {device_name}") # DEBUG
+        for key, value in details.items(): # DEBUG
+            print(f"    Key: {key}, Type: {type(value)}, Value: {value}") # DEBUG
     try:
-        json_output = json.dumps(device_data)
+        json_output = json.dumps(device_data) # Use json.dumps directly for more control
+        print(f"DEBUG: r_devices successfully serialized data.") # DEBUG
         return app.response_class(
             response=json_output,
             status=200,
             mimetype='application/json'
         )
     except TypeError as e:
-        print(f"ERROR: JSON serialization failed in r_devices: {e}")
+        print(f"ERROR: JSON serialization failed in r_devices: {e}") # DEBUG
         return jsonify({"error": f"Serialization error: {e}", "status": "error"}), 500
 
 @app.route("/api/device/<device_name>")
@@ -976,14 +777,15 @@ def r_device_details(device_name):
     peak_usage = float(device_df['power'].max())
     avg_power = float(device_df['power'].mean())
     efficiency = calculate_device_efficiency(device_df, device_name)
-    is_active = bool(latest_reading['switch_status'])
+    print(f"DEBUG: Type of switch_status in DataFrame for {device_name} (details before assignment): {type(latest_reading['switch_status'])}") # NEW DEBUG
+    is_active = bool(latest_reading['switch_status']) # Should already be Python bool
     
     # Usage patterns
-    hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()}
+    hourly_usage = {int(k): float(v) for k, v in device_df.groupby('hour')['power'].mean().to_dict().items()} # Ensure int keys, float values
     daily_usage = device_df.groupby(device_df["timestamp"].dt.date)['electricity'].sum().to_dict()
     
     # Convert date keys to strings for JSON serialization
-    daily_usage_str = {str(k): float(v) for k, v in daily_usage.items()}
+    daily_usage_str = {str(k): float(v) for k, v in daily_usage.items()} # Ensure float values
     
     # Get data-driven suggestions for this specific device
     suggestions = generate_device_suggestions(device_name, current_power, efficiency, is_active)
@@ -1014,6 +816,34 @@ def r_device_details(device_name):
         "predicted_bill": predicted_bill
     })
 
+@app.route("/api/weather")
+def r_weather():
+    """Simulate fetching current weather data for a given city."""
+    city = request.args.get("city", "Chennai") # Default to Chennai if no city is provided
+    
+    # Simulate weather conditions
+    temperatures = {
+        "Chennai": random.uniform(28, 35),
+        "Delhi": random.uniform(25, 32),
+        "Mumbai": random.uniform(27, 33),
+        "Bangalore": random.uniform(22, 28),
+        "Default": random.uniform(20, 30)
+    }
+    
+    conditions = ["Sunny", "Partly Cloudy", "Cloudy", "Rainy", "Humid"]
+    
+    temp = round(temperatures.get(city, temperatures["Default"]), 1)
+    condition = random.choice(conditions)
+    humidity = random.randint(60, 95)
+    
+    return jsonify({
+        "city": city,
+        "temperature_celsius": temp,
+        "condition": condition,
+        "humidity_percent": humidity,
+        "message": f"Simulated weather for {city}"
+    })
+
 @app.route("/api/health")
 def health_check():
     try:
@@ -1033,10 +863,10 @@ def health_check():
             "error": str(e)
         }), 500
 
-# Alert Management Routes
+# Alert Management Routes with Device-Specific Support
 @app.route("/api/alert-settings", methods=["GET"])
 def get_alert_settings():
-    """Get all alert settings"""
+    """Get all alert settings including device-specific ones"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -1058,7 +888,7 @@ def get_alert_settings():
 
 @app.route("/api/alert-settings", methods=["POST"])
 def create_alert_setting():
-    """Create or update alert setting"""
+    """Create or update alert setting with device-specific support"""
     try:
         data = request.get_json()
         
@@ -1114,7 +944,7 @@ def create_alert_setting():
 
 @app.route("/api/alert-settings/<int:setting_id>", methods=["DELETE"])
 def delete_alert_setting(setting_id):
-    """Delete an alert setting"""
+    """Delete alert setting"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -1122,9 +952,53 @@ def delete_alert_setting(setting_id):
             conn.commit()
             
             if cursor.rowcount == 0:
-                return jsonify({"error": "Alert setting not found"}), 404
+                return jsonify({"error": "Setting not found"}), 404
             
             return jsonify({"message": "Alert setting deleted successfully"})
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/devices/list", methods=["GET"])
+def get_devices_list():
+    """Get list of available devices for threshold configuration"""
+    try:
+        if df is None or df.empty:
+            return jsonify({"devices": []})
+        
+        devices = df['device_name'].unique().tolist()
+        return jsonify({"devices": devices})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/device-thresholds/<device_name>", methods=["GET"])
+def get_device_thresholds_api(device_name):
+    """Get thresholds for a specific device"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT setting_name, threshold_value, threshold_type, is_enabled 
+                FROM alert_settings 
+                WHERE device_name = ?
+            ''', (device_name,))
+            
+            settings = cursor.fetchall()
+            
+            thresholds = []
+            for setting in settings:
+                thresholds.append({
+                    'setting_name': setting['setting_name'],
+                    'threshold_value': setting['threshold_value'],
+                    'threshold_type': setting['threshold_type'],
+                    'is_enabled': bool(setting['is_enabled'])
+                })
+            
+            return jsonify({
+                "device_name": device_name,
+                "thresholds": thresholds
+            })
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1172,7 +1046,7 @@ def add_email_recipient():
                 data['email'],
                 data.get('name', ''),
                 data.get('is_active', True),
-                json.dumps(data.get('alert_types', ['peak_power', 'energy_spike', 'device_anomaly']))
+                json.dumps(data.get('alert_types', ['peak_power', 'energy_spike', 'device_anomaly', 'voltage_limit', 'current_limit', 'energy_limit']))
             ))
             
             conn.commit()
@@ -1288,9 +1162,6 @@ def test_alert():
         if not test_email:
             return jsonify({"error": "Email address required"}), 400
         
-        if not email_service:
-            return jsonify({"error": "Email service not configured"}), 500
-        
         # Send test email using the improved service
         result = email_service.send_test_email(test_email)
         
@@ -1306,12 +1177,6 @@ def test_alert():
 def test_email_connection():
     """Test email connection without sending email"""
     try:
-        if not email_service:
-            return jsonify({
-                "success": False,
-                "error": "Email service not configured"
-            }), 500
-        
         result = email_service.test_connection()
         return jsonify(result)
     except Exception as e:
@@ -1319,108 +1184,6 @@ def test_email_connection():
             "success": False,
             "error": str(e)
         }), 500
-
-@app.route("/api/available-devices", methods=["GET"])
-def get_available_devices():
-    """Get list of available devices from current data"""
-    try:
-        if df is None or df.empty:
-            return jsonify({"devices": []})
-        
-        devices = df['device_name'].unique().tolist()
-        device_info = []
-        
-        for device in devices:
-            device_df = df[df['device_name'] == device]
-            latest_reading = device_df.iloc[-1]
-            
-            device_info.append({
-                "name": device,
-                "current_power": float(latest_reading['power']),
-                "is_active": bool(latest_reading['switch_status']),
-                "data_points": len(device_df)
-            })
-        
-        return jsonify({"devices": device_info})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/device-thresholds", methods=["GET"])
-def get_device_thresholds():
-    """Get device-specific thresholds with current status"""
-    if df is None:
-        return jsonify({"error": "No data loaded"}), 400
-    
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get all device-specific thresholds
-            cursor.execute('''
-                SELECT device_name, setting_name, threshold_value, threshold_type, is_enabled
-                FROM alert_settings 
-                WHERE device_name IS NOT NULL AND is_enabled = 1
-            ''')
-            
-            device_thresholds = {}
-            for row in cursor.fetchall():
-                device_name = row[0]
-                if device_name not in device_thresholds:
-                    device_thresholds[device_name] = []
-                
-                device_thresholds[device_name].append({
-                    'setting_name': row[1],
-                    'threshold_value': row[2],
-                    'threshold_type': row[3],
-                    'is_enabled': bool(row[4])
-                })
-            
-            # Get current device status
-            result = {}
-            for device in df['device_name'].unique():
-                device_data = df[df['device_name'] == device]
-                current_power = float(device_data['power'].iloc[-1]) if len(device_data) > 0 else 0
-                current_energy = float(device_data['electricity'].iloc[-1]) if len(device_data) > 0 else 0
-                
-                thresholds = device_thresholds.get(device, [])
-                
-                # Check if any thresholds are exceeded
-                alerts = []
-                for threshold in thresholds:
-                    if threshold['setting_name'] == 'peak_power':
-                        current_value = current_power
-                    elif threshold['setting_name'] == 'energy_spike':
-                        current_value = current_power
-                    else:
-                        current_value = current_energy
-                    
-                    is_exceeded = False
-                    if threshold['threshold_type'] == 'greater_than' and current_value > threshold['threshold_value']:
-                        is_exceeded = True
-                    elif threshold['threshold_type'] == 'less_than' and current_value < threshold['threshold_value']:
-                        is_exceeded = True
-                    elif threshold['threshold_type'] == 'equal_to' and abs(current_value - threshold['threshold_value']) < 0.01:
-                        is_exceeded = True
-                    
-                    if is_exceeded:
-                        alerts.append({
-                            'type': threshold['setting_name'],
-                            'threshold': threshold['threshold_value'],
-                            'current': current_value
-                        })
-                
-                result[device] = {
-                    'current_power': current_power,
-                    'current_energy': current_energy,
-                    'thresholds': thresholds,
-                    'alerts': alerts,
-                    'is_active': current_power > 0
-                }
-            
-            return jsonify(result)
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # Initialize database and start background monitoring
 if __name__ == "__main__":
@@ -1435,9 +1198,10 @@ if __name__ == "__main__":
     print("🔗 API endpoints available at: http://localhost:5000/api/")
     print("🤖 Device monitoring and AI suggestions enabled")
     print("📧 Email alert system activated")
+    print("🎯 Device-specific threshold monitoring enabled")
     
     # Print email configuration status
-    if email_service and email_service.config_valid:
+    if email_service.config_valid:
         print("✅ Email service configured and ready")
     else:
         print("⚠️  Email service configuration issues detected")

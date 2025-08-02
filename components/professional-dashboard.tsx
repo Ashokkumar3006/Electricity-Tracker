@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -60,69 +60,45 @@ export default function ProfessionalDashboard({
   const handlePredictionPeriodChange = async (period: string) => {
     setSelectedPredictionPeriod(period)
     setIsLoadingForecast(true)
-    setForecastData(null) // Clear previous data
 
     try {
-      console.log(`Fetching prediction for ${period} days...`)
+      // Simulate API call for different prediction periods
+      // In real implementation, this would call your backend with the period parameter
       const response = await fetch(`http://localhost:5000/api/predict?days=${period}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`Received prediction data for ${period} days:`, data)
         setForecastData(data)
       } else {
-        const errorData = await response.json()
-        console.error("API Error:", errorData)
-
-        // Fallback calculation if API fails
+        // Fallback to current data with adjusted calculations
         const baseData = dashboardData?.prediction
         if (baseData) {
           const multiplier = Number.parseInt(period) / 30
-          const fallbackData = {
+          setForecastData({
             predicted_kwh: (baseData.predicted_kwh * multiplier).toFixed(2),
             bill: {
               total_amount: (baseData.bill?.total_amount * multiplier).toFixed(2),
             },
-            daily_avg_kwh: ((baseData.predicted_kwh * multiplier) / Number.parseInt(period)).toFixed(2),
-            daily_avg_cost: ((baseData.bill?.total_amount * multiplier) / Number.parseInt(period)).toFixed(2),
-            prediction_period_days: Number.parseInt(period),
-            confidence: "estimated",
-          }
-          console.log("Using fallback calculation:", fallbackData)
-          setForecastData(fallbackData)
+          })
         }
       }
     } catch (error) {
       console.error("Error fetching forecast:", error)
-
-      // Use fallback calculation on network error
+      // Use default data with period adjustment
       const baseData = dashboardData?.prediction
       if (baseData) {
         const multiplier = Number.parseInt(period) / 30
-        const fallbackData = {
+        setForecastData({
           predicted_kwh: (baseData.predicted_kwh * multiplier).toFixed(2),
           bill: {
             total_amount: (baseData.bill?.total_amount * multiplier).toFixed(2),
           },
-          daily_avg_kwh: ((baseData.predicted_kwh * multiplier) / Number.parseInt(period)).toFixed(2),
-          daily_avg_cost: ((baseData.bill?.total_amount * multiplier) / Number.parseInt(period)).toFixed(2),
-          prediction_period_days: Number.parseInt(period),
-          confidence: "estimated",
-        }
-        console.log("Using fallback calculation after error:", fallbackData)
-        setForecastData(fallbackData)
+        })
       }
     } finally {
       setIsLoadingForecast(false)
     }
   }
-
-  // Initialize with default period on component mount
-  useEffect(() => {
-    if (dashboardData?.prediction && !forecastData) {
-      handlePredictionPeriodChange(selectedPredictionPeriod)
-    }
-  }, [dashboardData?.prediction])
 
   // Use forecast data if available, otherwise use dashboard data
   const currentForecast = forecastData || dashboardData?.prediction
@@ -320,25 +296,12 @@ export default function ProfessionalDashboard({
                     <div className="flex items-center justify-center space-x-2 mb-2">
                       <Calendar className="h-5 w-5 text-green-600" />
                       <span className="text-sm text-gray-600">{selectedOption?.label} Prediction</span>
-                      {forecastData?.confidence && (
-                        <Badge variant="outline" className="text-xs">
-                          {forecastData.confidence}
-                        </Badge>
-                      )}
                     </div>
                     <div className="text-3xl font-bold text-green-600 mb-2">
-                      {isLoadingForecast ? (
-                        <div className="flex items-center justify-center">
-                          <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-                          Loading...
-                        </div>
-                      ) : (
-                        `${currentForecast.predicted_kwh} kWh`
-                      )}
+                      {isLoadingForecast ? "Loading..." : `${currentForecast.predicted_kwh} kWh`}
                     </div>
                     <p className="text-sm text-gray-600">Predicted consumption</p>
                   </div>
-
                   <div className="text-center py-4 border-t border-gray-100">
                     <div className="text-2xl font-bold text-blue-600 mb-2 flex items-center justify-center">
                       <IndianRupee className="h-6 w-6 mr-1" />
@@ -347,35 +310,25 @@ export default function ProfessionalDashboard({
                     <p className="text-sm text-gray-600">Estimated bill</p>
                   </div>
 
-                  {/* Enhanced period comparison */}
-                  <div className="bg-gray-50 rounded-lg p-4 mt-4 space-y-2">
+                  {/* Period comparison */}
+                  <div className="bg-gray-50 rounded-lg p-3 mt-4">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">Daily Average:</span>
                       <span className="font-medium">
                         {isLoadingForecast
                           ? "..."
-                          : currentForecast.daily_avg_kwh
-                            ? `${currentForecast.daily_avg_kwh} kWh`
-                            : `${(currentForecast.predicted_kwh / Number.parseInt(selectedPredictionPeriod)).toFixed(2)} kWh`}
+                          : `${(currentForecast.predicted_kwh / Number.parseInt(selectedPredictionPeriod)).toFixed(2)} kWh`}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center justify-between text-sm mt-1">
                       <span className="text-gray-600">Daily Cost:</span>
                       <span className="font-medium">
                         ₹
                         {isLoadingForecast
                           ? "..."
-                          : currentForecast.daily_avg_cost
-                            ? currentForecast.daily_avg_cost
-                            : `${(currentForecast.bill?.total_amount / Number.parseInt(selectedPredictionPeriod)).toFixed(2)}`}
+                          : `${(currentForecast.bill?.total_amount / Number.parseInt(selectedPredictionPeriod)).toFixed(2)}`}
                       </span>
                     </div>
-                    {currentForecast.prediction_period_days && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">Forecast Period:</span>
-                        <span className="font-medium">{currentForecast.prediction_period_days} days</span>
-                      </div>
-                    )}
                   </div>
                 </>
               ) : (
